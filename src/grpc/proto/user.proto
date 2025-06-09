@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package user;
+
+service UserService {
+  rpc ValidateUser (ValidateUserRequest) returns (ValidateUserResponse);
+  rpc GetFriends (GetFriendsRequest) returns (GetFriendsResponse);
+  rpc GetFollows (GetFollowsRequest) returns (GetFollowsResponse);
+}
+
+message ValidateUserRequest {
+  string userId = 1;
+}
+
+message ValidateUserResponse {
+  bool exists = 1;
+  bool isActive = 2;
+  string status = 3;
+}
+
+message GetFriendsRequest {
+  string userId = 1;
+}
+
+message GetFriendsResponse {
+  repeated string friendIds = 1;
+}
+
+message GetFollowsRequest {
+  string userId = 1;
+}
+
+message GetFollowsResponse {
+  repeated string followIds = 1;
+} 

@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package interaction;
+
+service InteractionService {
+  rpc ProvidePostDetails (ProvidePostDetailsRequest) returns (ProvidePostDetailsResponse);
+}
+
+message ProvidePostDetailsRequest {
+  string postId = 1;
+}
+
+message ProvidePostDetailsResponse {
+  PostDetails post = 1;
+}
+
+message PostDetails {
+  string id = 1;
+  string userId = 2;
+  string content = 3;
+  repeated string media = 4;
+  string visibility = 5;
+  int32 likeCount = 6;
+  int32 commentCount = 7;
+  bool isLiked = 8;
+  repeated Comment comments = 9;
+}
+
+message Comment {
+  string id = 1;
+  string userId = 2;
+  string content = 3;
+  string createdAt = 4;
+  string updatedAt = 5;
+} 

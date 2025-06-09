@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package post;
+
+service PostService {
+  rpc CreatePost (CreatePostRequest) returns (PostResponse);
+  rpc GetPost (GetPostRequest) returns (PostResponse);
+  rpc UpdatePost (UpdatePostRequest) returns (PostResponse);
+  rpc DeletePost (DeletePostRequest) returns (PostResponse);
+  rpc GetPostsByUser (GetPostsByUserRequest) returns (PostsResponse);
+  rpc GetFeed (GetFeedRequest) returns (PostsResponse);
+  rpc RemovePost (RemovePostRequest) returns (PostResponse); // For admin moderation
+  rpc ValidatePost (ValidatePostRequest) returns (ValidatePostResponse);
+  
+  // Admin service methods
+  rpc AllPosts (Empty) returns (PostList);
+  rpc ReportedPosts (Empty) returns (PostList);
+  rpc FlagPost (FlagPostRequest) returns (PostResponse);
+  rpc AdminDeletePost (PostIdRequest) returns (PostResponse);
+}
+
+message Post {
+  string id = 1;
+  string userId = 2;
+  string content = 3;
+  repeated string media = 4;
+  string visibility = 5;
+  bool deleted = 6;
+  bool moderated = 7;
+  repeated string keywords = 8;
+  string createdAt = 9;
+  string updatedAt = 10;
+  bool isReported = 11;
+  string reportReason = 12;
+}
+
+message CreatePostRequest {
+  string userId = 1;
+  string content = 2;
+  repeated string media = 3;
+  string visibility = 4;
+}
+
+message UpdatePostRequest {
+  string postId = 1;
+  string content = 2;
+  repeated string media = 3;
+  string visibility = 4;
+}
+
+message DeletePostRequest {
+  string postId = 1;
+}
+
+message GetPostRequest {
+  string postId = 1;
+}
+
+message GetPostsByUserRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message GetFeedRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message RemovePostRequest {
+  string postId = 1;
+}
+
+message PostResponse {
+  Post post = 1;
+}
+
+message PostsResponse {
+  repeated Post posts = 1;
+  int32 total = 2;
+}
+
+message ValidatePostRequest {
+  string postId = 1;
+}
+
+message ValidatePostResponse {
+  bool exists = 1;
+  string userId = 2; // post owner id (for notification)
+}
+
+message Empty {}
+
+message PostList {
+  repeated Post posts = 1;
+}
+
+message FlagPostRequest {
+  string postId = 1;
+  string reason = 2;
+}
+
+message PostIdRequest {
+  string postId = 1;
+} 

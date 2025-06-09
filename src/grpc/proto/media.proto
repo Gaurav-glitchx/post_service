@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package media;
+
+service MediaService {
+  rpc GetSignedUploadUrls (GetSignedUploadUrlsRequest) returns (GetSignedUploadUrlsResponse);
+  rpc DeleteMedia (DeleteMediaRequest) returns (DeleteMediaResponse);
+}
+
+message GetSignedUploadUrlsRequest {
+  repeated string files = 1;
+}
+
+message GetSignedUploadUrlsResponse {
+  repeated SignedUrl urls = 1;
+}
+
+message SignedUrl {
+  string fileKey = 1;
+  string uploadUrl = 2;
+  string publicUrl = 3;
+}
+
+message DeleteMediaRequest {
+  repeated string files = 1;
+}
+
+message DeleteMediaResponse {
+  bool success = 1;
+  repeated string deletedFiles = 2;
+  repeated string failedFiles = 3;
+} 
