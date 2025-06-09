@@ -4,8 +4,8 @@ import { lastValueFrom } from 'rxjs';
 
 interface UserServiceGrpc {
   validateUser(data: { userId: string }): Promise<any>;
-  getFriends(data: { userId: string }): Promise<any>;
-  getFollows(data: { userId: string }): Promise<any>;
+  GetFollowing(data: { userId: string }): Promise<any>;
+  GetFollowers(data: { userId: string }): Promise<any>;
 }
 
 @Injectable()
@@ -23,10 +23,10 @@ export class GrpcUserService {
   }
 
   async getFriends(userId: string): Promise<any> {
-    return lastValueFrom(await this.userService.getFriends({ userId }));
+    return lastValueFrom(await this.userService.GetFollowing({ userId }));
   }
 
   async getFollows(userId: string): Promise<any> {
-    return lastValueFrom(await this.userService.getFollows({ userId }));
+    return lastValueFrom(await this.userService.GetFollowers({ userId }));
   }
 } 

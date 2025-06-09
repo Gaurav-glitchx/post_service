@@ -13,6 +13,7 @@ message ValidateTokenRequest {
 message ValidateTokenResponse {
   string userId = 1;
   string email = 2;
-  repeated string roles = 3;
-  bool isValid = 4;
-} 
+  string role = 3;
+  int64 issuedAt = 4;
+  int64 expiresAt = 5;
+}

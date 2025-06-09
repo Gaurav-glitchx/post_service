@@ -4,8 +4,8 @@ package user;
 
 service UserService {
   rpc ValidateUser (ValidateUserRequest) returns (ValidateUserResponse);
-  rpc GetFriends (GetFriendsRequest) returns (GetFriendsResponse);
-  rpc GetFollows (GetFollowsRequest) returns (GetFollowsResponse);
+  rpc GetFollowers (GetFollowersRequest) returns (GetFollowersResponse);
+  rpc GetFollowing (GetFollowingRequest) returns (GetFollowingResponse);
 }
 
 message ValidateUserRequest {
@@ -18,18 +18,18 @@ message ValidateUserResponse {
   string status = 3;
 }
 
-message GetFriendsRequest {
+message GetFollowersRequest {
   string userId = 1;
 }
 
-message GetFriendsResponse {
-  repeated string friendIds = 1;
-}
-
-message GetFollowsRequest {
+message GetFollowingRequest {
   string userId = 1;
 }
 
-message GetFollowsResponse {
-  repeated string followIds = 1;
+message GetFollowersResponse {
+  repeated string followersIds = 1;
+}
+
+message GetFollowingResponse {
+  repeated string followingIds = 1;
 } 

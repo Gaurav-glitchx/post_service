@@ -12,7 +12,6 @@ import { PostGrpcController } from './post.grpc.controller';
 import { GrpcAuthService } from './grpc/grpc-auth.service';
 import { GrpcUserService } from './grpc/grpc-user.service';
 import { GrpcMediaService } from './grpc/grpc-media.service';
-import { GrpcInteractionService } from './grpc/grpc-interaction.service';
 import { GrpcNotificationService } from './grpc/grpc-notification.service';
 import { CustomLogger } from './logger/logger.service';
 
@@ -57,23 +56,11 @@ import { CustomLogger } from './logger/logger.service';
         inject: [ConfigService],
       },
       {
-        name: 'INTERACTION_PACKAGE',
-        useFactory: (configService: ConfigService) => ({
-          transport: Transport.GRPC,
-          options: {
-            package: 'interaction',
-            protoPath: join(process.cwd(), 'dist/grpc/proto/interaction.proto'),
-            url: configService.get('GRPC_INTERACTION_URL'),
-          },
-        }),
-        inject: [ConfigService],
-      },
-      {
         name: 'NOTIFICATION_PACKAGE',
         useFactory: (configService: ConfigService) => ({
           transport: Transport.GRPC,
           options: {
-            package: 'notification',
+            package: 'postNotification',
             protoPath: join(process.cwd(), 'dist/grpc/proto/notification.proto'),
             url: configService.get('GRPC_NOTIFICATION_URL'),
           },
@@ -90,7 +77,6 @@ import { CustomLogger } from './logger/logger.service';
     GrpcAuthService,
     GrpcUserService,
     GrpcMediaService,
-    GrpcInteractionService,
     GrpcNotificationService,
     CustomLogger,
   ],

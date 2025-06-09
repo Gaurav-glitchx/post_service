@@ -5,12 +5,12 @@ import { ConfigService } from '@nestjs/config';
 import { CustomLogger } from '../logger/logger.service';
 
 interface NotificationService {
-  sendNotification(request: {
+  sendPostNotification(request: {
     userId: string;
     type: string;
     title: string;
     message: string;
-    data: Record<string, string>;
+    post: Record<string, string>;
   }): Promise<{ success: boolean; notificationId: string }>;
 }
 
@@ -29,21 +29,21 @@ export class GrpcNotificationService implements OnModuleInit {
     this.notificationService = this.client.getService<NotificationService>('NotificationService');
   }
 
-  async sendNotification(
+  async sendPostNotification(
     userId: string,
     type: string,
     title: string,
     message: string,
-    data: Record<string, string> = {},
+    post: Record<string, string> = {},
   ) {
     try {
       this.logger.log('Sending notification', { userId, type, title });
-      const response = await this.notificationService.sendNotification({
+      const response = await this.notificationService.sendPostNotification({
         userId,
         type,
         title,
         message,
-        data,
+        post,
       });
       this.logger.log('Notification sent successfully', { notificationId: response.notificationId });
       return response;
