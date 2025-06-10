@@ -1,12 +1,12 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Types } from "mongoose";
 
 export type PostDocument = Post & Document;
 
 @Schema({ timestamps: true })
 export class Post extends Document {
   @Prop({ required: true })
-  userId: string;
+  UserId: Types.ObjectId;
 
   @Prop({ required: true })
   content: string;
@@ -14,7 +14,7 @@ export class Post extends Document {
   @Prop({ type: [String], default: [] })
   media: string[];
 
-  @Prop({ default: 'public', enum: ['public', 'private'] })
+  @Prop({ default: "public", enum: ["public", "private"] })
   visibility: string;
 
   @Prop({ type: [String], default: [] })
@@ -33,4 +33,4 @@ export class Post extends Document {
   reportReason: string;
 }
 
-export const PostSchema = SchemaFactory.createForClass(Post); 
+export const PostSchema = SchemaFactory.createForClass(Post);

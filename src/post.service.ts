@@ -5,11 +5,11 @@ import {
   Inject,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
+import mongoose, { Model, Types } from "mongoose";
 import { Post, PostDocument } from "./post.schema";
 import { CreatePostDto } from "./dto/create-post.dto";
 import { UpdatePostDto } from "./dto/update-post.dto";
-import { KafkaProducerService } from "./kafka-producer.service";
+// import { KafkaProducerService } from "./kafka-producer.service";
 import { GrpcUserService } from "./grpc/grpc-user.service";
 import { GrpcMediaService } from "./grpc/grpc-media.service";
 import { GrpcNotificationService } from "./grpc/grpc-notification.service";
@@ -19,7 +19,7 @@ import { CustomLogger } from "./logger/logger.service";
 export class PostService {
   constructor(
     @InjectModel(Post.name) private postModel: Model<PostDocument>,
-    private readonly kafkaProducer: KafkaProducerService,
+    // private readonly kafkaProducer: KafkaProducerService,
     private readonly grpcUserService: GrpcUserService,
     private readonly grpcMediaService: GrpcMediaService,
     private readonly grpcNotificationService: GrpcNotificationService,
@@ -28,33 +28,33 @@ export class PostService {
     this.logger.setContext("PostService");
   }
 
-  async create(dto: CreatePostDto, user: any) {
-    this.logger.log("Creating new post", { userId: dto.userId });
-    await this.grpcUserService.validateUser(dto.userId);
+  async create(dto: CreatePostDto, userId: any) {
+    this.logger.log("Creating new post", { UserId: userId });
     let mediaUrls = dto.media || [];
     if (mediaUrls.length) {
       this.logger.log("Getting signed URLs for media", { files: mediaUrls });
       await this.grpcMediaService.getSignedUploadUrls(mediaUrls);
     }
     const keywords = dto.content.split(" ");
-    const created = await this.postModel.create({ ...dto, keywords });
+    const UserId = new Types.ObjectId(userId);
+    const created = await this.postModel.create({ ...dto, UserId, keywords });
     this.logger.log("Post created successfully", { postId: created._id });
-    await this.kafkaProducer.emit("post.created", created);
+    // await this.kafkaProducer.emit("post.created", created);
 
-    // Send notification to followers
-    const followers = await this.grpcUserService.getFriends(dto.userId);
-    for (const followerId of followers) {
-      await this.grpcNotificationService.sendPostNotification(
-        followerId,
-        "NEW_POST",
-        "New Post from User",
-        `${user.name} created a new post`,
-        {
-          postId: created._id.toString(),
-          userId: dto.userId,
-        }
-      );
-    }
+    // // Send notification to followers
+    // const followers = await this.grpcUserService.getFriends(dto.userId);
+    // for (const followerId of followers) {
+    //   await this.grpcNotificationService.sendPostNotification(
+    //     followerId,
+    //     "NEW_POST",
+    //     "New Post from User",
+    //     `${user.name} created a new post`,
+    //     {
+    //       postId: created._id.toString(),
+    //       userId: dto.userId,
+    //     }
+    //   );
+    // }
 
     return created;
   }
@@ -76,7 +76,7 @@ export class PostService {
       this.logger.warn("Post not found or unavailable", { postId });
       throw new NotFoundException("Post not found");
     }
-    if (post.userId !== user.id) {
+    if (post.UserId !== user.id) {
       this.logger.warn("Unauthorized post update attempt", {
         postId,
         userId: user.id,
@@ -97,7 +97,7 @@ export class PostService {
       this.logger.warn("Post not found or unavailable", { postId });
       throw new NotFoundException("Post not found");
     }
-    if (post.userId !== user.id) {
+    if (post.UserId !== user.id) {
       this.logger.warn("Unauthorized post deletion attempt", {
         postId,
         userId: user.id,
@@ -110,15 +110,16 @@ export class PostService {
       this.logger.log("Deleting associated media files", { files: post.media });
       await this.grpcMediaService.deleteMedia(post.media);
     }
-    await this.kafkaProducer.emit("post.deleted", { postId });
+    // await this.kafkaProducer.emit("post.deleted", { postId });
     this.logger.log("Post deleted successfully", { postId });
     return post;
   }
 
   async getByUser(userId: string, page = 1, limit = 10, user: any) {
     this.logger.log("Getting posts by user", { userId, page, limit });
-    await this.grpcUserService.validateUser(userId);
-    const query = { userId, deleted: false, moderated: false };
+    // await this.grpcUserService.validateUser(userId);
+    const userIdObj = new mongoose.Types.ObjectId(user);
+    const query = { userIdObj, deleted: false, moderated: false };
     const posts = await this.postModel
       .find(query)
       .skip((page - 1) * limit)
@@ -215,7 +216,7 @@ export class PostService {
     }
     post.moderated = true;
     await post.save();
-    await this.kafkaProducer.emit("post.moderated", { postId });
+    // await this.kafkaProducer.emit("post.moderated", { postId });
     this.logger.log("Post removed by admin", { postId });
     return post;
   }
@@ -233,7 +234,7 @@ export class PostService {
       }
       return {
         exists: true,
-        userId: post.userId,
+        userId: post.UserId,
       };
     } catch (error) {
       this.logger.error("Error validating post", error.stack, {
@@ -273,11 +274,12 @@ export class PostService {
     post.isReported = true;
     post.reportReason = reason;
     await post.save();
-    await this.kafkaProducer.emit("post.flagged", { postId, reason });
+    const UserId = post.UserId.toString();
+    // await this.kafkaProducer.emit("post.flagged", { postId, reason });
 
     // Notify post owner about the report
     await this.grpcNotificationService.sendPostNotification(
-      post.userId,
+      UserId,
       "POST_REPORTED",
       "Your Post Has Been Reported",
       "Your post has been reported for review",
@@ -307,11 +309,12 @@ export class PostService {
       this.logger.log("Deleting associated media files", { files: post.media });
       await this.grpcMediaService.deleteMedia(post.media);
     }
-    await this.kafkaProducer.emit("post.deleted", { postId });
+    const UserId = post.UserId.toString();
+    // await this.kafkaProducer.emit("post.deleted", { postId });
 
     // Notify post owner about deletion
     await this.grpcNotificationService.sendPostNotification(
-      post.userId,
+      UserId,
       "POST_DELETED",
       "Your Post Has Been Deleted",
       "Your post has been deleted by an administrator",

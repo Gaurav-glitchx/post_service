@@ -8,12 +8,12 @@ import { UpdatePostDto } from './dto/update-post.dto';
 export class PostGrpcController {
   constructor(private readonly postService: PostService) {}
 
-  @GrpcMethod('PostService', 'CreatePost')
-  async createPost(data: CreatePostDto) {
-    // No auth here, assumed trusted inter-service call
-    const created = await this.postService.create(data, { id: data.userId });
-    return { post: created };
-  }
+  // @GrpcMethod('PostService', 'CreatePost')
+  // async createPost(data: CreatePostDto) {
+  //   // No auth here, assumed trusted inter-service call
+  //   const created = await this.postService.create(data, { id: data.userId });
+  //   return { post: created };
+  // }
 
   @GrpcMethod('PostService', 'GetPost')
   async getPost(data: { postId: string }) {
@@ -34,11 +34,11 @@ export class PostGrpcController {
     return { post: deleted };
   }
 
-  @GrpcMethod('PostService', 'GetPostsByUser')
-  async getPostsByUser(data: { userId: string; page: number; limit: number }) {
-    const { posts, total } = await this.postService.getByUser(data.userId, data.page, data.limit, { id: data.userId });
-    return { posts, total };
-  }
+  // @GrpcMethod('PostService', 'GetPostsByUser')
+  // async getPostsByUser(data: { userId: string; page: number; limit: number }) {
+  //   const { posts, total } = await this.postService.getByUser(data.userId, data.page, data.limit, { id: data.userId });
+  //   return { posts, total };
+  // }
 
   @GrpcMethod('PostService', 'GetFeed')
   async getFeed(data: { userId: string; page: number; limit: number }) {

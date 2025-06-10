@@ -16,9 +16,4 @@ export class CreatePostDto {
   @IsString()
   @IsIn(['public', 'private'])
   visibility: string;
-
-  @ApiProperty({ example: 'userId123' })
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
 } 
