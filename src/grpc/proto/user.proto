@@ -3,20 +3,10 @@ syntax = "proto3";
 package user;
 
 service UserService {
-  rpc ValidateUser (ValidateUserRequest) returns (ValidateUserResponse);
   rpc GetFollowers (GetFollowersRequest) returns (GetFollowersResponse);
   rpc GetFollowing (GetFollowingRequest) returns (GetFollowingResponse);
 }
 
-message ValidateUserRequest {
-  string userId = 1;
-}
-
-message ValidateUserResponse {
-  bool exists = 1;
-  bool isActive = 2;
-  string status = 3;
-}
 
 message GetFollowersRequest {
   string userId = 1;

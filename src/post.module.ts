@@ -17,6 +17,7 @@ import { GrpcNotificationService } from "./grpc/grpc-notification.service";
 import { CustomLogger } from "./logger/logger.service";
 import { GrpcAuthGuard } from "./guards/grpc-auth.guard";
 import { GrpcAuthModule } from "./guards/grpc-auth.module";
+import { GrpcModule } from './grpc/grpc.module';
 
 @Module({
   imports: [
@@ -42,7 +43,7 @@ import { GrpcAuthModule } from "./guards/grpc-auth.module";
           options: {
             package: "user",
             protoPath: join(process.cwd(), "dist/grpc/proto/user.proto"),
-            url: configService.get("GRPC_USER_URL"),
+            url: "localhost:50051",
           },
         }),
         inject: [ConfigService],
@@ -75,6 +76,7 @@ import { GrpcAuthModule } from "./guards/grpc-auth.module";
         inject: [ConfigService],
       },
     ]),
+    GrpcModule
   ],
   controllers: [PostController, PostGrpcController],
   providers: [

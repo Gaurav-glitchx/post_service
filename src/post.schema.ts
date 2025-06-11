@@ -1,6 +1,11 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { Document, Types } from "mongoose";
 
+export enum PostVisibility {
+  PUBLIC = "public",
+  PRIVATE = "private",
+}
+
 export type PostDocument = Post & Document;
 
 @Schema({ timestamps: true })
@@ -14,8 +19,11 @@ export class Post extends Document {
   @Prop({ type: [String], default: [] })
   media: string[];
 
-  @Prop({ default: "public", enum: ["public", "private"] })
-  visibility: string;
+  @Prop({ type: [String], default: [] })
+  signedMediaUrls: string[];
+
+  @Prop({ default: PostVisibility.PUBLIC, enum: Object.values(PostVisibility) })
+  visibility: PostVisibility;
 
   @Prop({ type: [String], default: [] })
   keywords: string[];

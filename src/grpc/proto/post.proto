@@ -11,6 +11,7 @@ service PostService {
   rpc GetFeed (GetFeedRequest) returns (PostsResponse);
   rpc RemovePost (RemovePostRequest) returns (PostResponse); // For admin moderation
   rpc ValidatePost (ValidatePostRequest) returns (ValidatePostResponse);
+  rpc GetPostInteractionCounts (GetPostInteractionCountsRequest) returns (GetPostInteractionCountsResponse);
   
   // Admin service methods
   rpc AllPosts (Empty) returns (PostList);
@@ -104,3 +105,12 @@ message FlagPostRequest {
 message PostIdRequest {
   string postId = 1;
 } 
+
+message GetPostInteractionCountsRequest {
+  string postId = 1;
+}
+
+message GetPostInteractionCountsResponse {
+  int32 reactionCount = 1;
+  int32 commentCount = 2;
+}

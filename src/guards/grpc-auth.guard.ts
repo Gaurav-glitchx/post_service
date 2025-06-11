@@ -43,7 +43,6 @@ export class GrpcAuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<RequestWithUser>();
     const authHeader = req.headers["authorization"];
 
-    console.log("Received auth header:", authHeader);
 
     if (!authHeader?.startsWith("Bearer ")) {
       throw new UnauthorizedException(
@@ -52,10 +51,8 @@ export class GrpcAuthGuard implements CanActivate {
     }
 
     const token = authHeader.split(" ")[1];
-    console.log("Extracted token:", token);
 
     try {
-      console.log("Calling auth service ValidateToken...");
       const requestData = { access_token: token.trim() };
       console.log(
         "Sending request data:",
@@ -65,7 +62,6 @@ export class GrpcAuthGuard implements CanActivate {
       const userPayload = await lastValueFrom(
         this.authService.ValidateToken(requestData)
       );
-      console.log("Auth service response:", userPayload);
 
       if (!userPayload) {
         throw new UnauthorizedException(

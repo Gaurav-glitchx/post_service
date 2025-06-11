@@ -49,6 +49,51 @@ export class PostController {
     return this.postService.create(createPostDto, UserId);
   }
 
+  @ApiOperation({ summary: "Get all posts by user" })
+  @ApiQuery({ name: "page", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @UseGuards(GrpcAuthGuard)
+  @Get("user/:userId")
+  getByUser(
+    @Param("userId") userId: string,
+    @Query("page") page: number = 1,
+    @Query("limit") limit: number = 10,
+    @Req() req: RequestWithUser
+  ) {
+    const currentUserId = req.user.userId;
+    return this.postService.getByUser(userId, page, limit, currentUserId);
+  }
+
+  @ApiOperation({ summary: "Get feed" })
+  @ApiQuery({ name: "page", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @UseGuards(GrpcAuthGuard)
+  @Get("feed")
+  getFeed(
+    @Req() req: RequestWithUser,
+    @Query("page") page: number = 1,
+    @Query("limit") limit: number = 10
+  ) {
+    const userId = req.user.userId;
+    return this.postService.getFeed(userId, page, limit);
+  }
+
+  @ApiOperation({ summary: "Search posts by keyword" })
+  @ApiQuery({ name: "q", required: true })
+  @ApiQuery({ name: "page", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @UseGuards(GrpcAuthGuard)
+  @Get("search")
+  search(
+    @Req() req: RequestWithUser,
+    @Query("q") query: string,
+    @Query("page") page: number = 1,
+    @Query("limit") limit: number = 10
+  ) {
+    const userId = req.user.userId;
+    return this.postService.search(query, page, limit, userId);
+  }
+
   @ApiOperation({ summary: "Get a post by ID" })
   @ApiResponse({ status: 200, description: "Post found" })
   @UseGuards(GrpcAuthGuard)
@@ -78,37 +123,5 @@ export class PostController {
   delete(@Param("postId") postId: string, @Req() req: RequestWithUser) {
     const userId = req.user.userId;
     return this.postService.delete(postId, userId);
-  }
-
-  @ApiOperation({ summary: "Get all posts by user" })
-  @ApiQuery({ name: "userId", required: true })
-  @ApiQuery({ name: "page", required: false })
-  @ApiQuery({ name: "limit", required: false })
-  @UseGuards(GrpcAuthGuard)
-  @Get("user/:userId")
-  getByUser(@Param("userId") userId: string, @Req() req: RequestWithUser) {
-    const currentUserId = req.user.userId;
-    return this.postService.getByUser(userId, 1, 10, currentUserId);
-  }
-
-  @ApiOperation({ summary: "Get feed" })
-  @ApiQuery({ name: "page", required: false })
-  @ApiQuery({ name: "limit", required: false })
-  @UseGuards(GrpcAuthGuard)
-  @Get("feed")
-  getFeed(@Req() req: RequestWithUser) {
-    const userId = req.user.userId;
-    return this.postService.getFeed(userId, 1, 10);
-  }
-
-  @ApiOperation({ summary: "Search posts by keyword" })
-  @ApiQuery({ name: "q", required: true })
-  @ApiQuery({ name: "page", required: false })
-  @ApiQuery({ name: "limit", required: false })
-  @UseGuards(GrpcAuthGuard)
-  @Get("search")
-  search(@Req() req: RequestWithUser) {
-    const userId = req.user.userId;
-    return this.postService.search("", 1, 10, userId);
   }
 }
