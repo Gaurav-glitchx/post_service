@@ -16,6 +16,7 @@ import { GrpcMediaService } from "./grpc/grpc-media.service";
 import { GrpcNotificationService } from "./grpc/grpc-notification.service";
 import { CustomLogger } from "./logger/logger.service";
 import { GrpcService } from "./grpc/grpc.service";
+import { User, UserDocument } from "./user.schema";
 
 interface SignedUrl {
   fileKey: string;
@@ -36,6 +37,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export class PostService {
   constructor(
     @InjectModel(Post.name) private postModel: Model<PostDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     // private readonly kafkaProducer: KafkaProducerService,
     private readonly grpcUserService: GrpcUserService,
     private readonly grpcMediaService: GrpcMediaService,
@@ -51,6 +53,66 @@ export class PostService {
     let mediaUrls = dto.media || [];
     let signedUrls = [];
 
+    // Validate tagged users if provided
+    if (dto.taggedUsers && dto.taggedUsers.length > 0) {
+      // Convert string IDs to ObjectIds
+      const taggedUserIds = dto.taggedUsers
+        .map((id) => {
+          try {
+            return new Types.ObjectId(id);
+          } catch (error) {
+            this.logger.warn("Invalid tagged user ID format", { userId: id });
+            return null;
+          }
+        })
+        .filter((id): id is Types.ObjectId => id !== null);
+
+      // Verify all tagged users exist
+      const validUsers = await Promise.all(
+        taggedUserIds.map(async (taggedId) => {
+          try {
+            const user = await this.grpcUserService.getUser(
+              taggedId.toString()
+            );
+            return user.exists ? taggedId : null;
+          } catch (error) {
+            this.logger.warn("Invalid tagged user", {
+              userId: taggedId.toString(),
+            });
+            return null;
+          }
+        })
+      );
+
+      // Filter out invalid users
+      const validTaggedUsers = validUsers.filter(
+        (id): id is Types.ObjectId => id !== null
+      );
+
+      if (validTaggedUsers.length !== dto.taggedUsers.length) {
+        this.logger.warn("Some tagged users are invalid", {
+          provided: dto.taggedUsers.length,
+          valid: validTaggedUsers.length,
+        });
+      }
+
+      // Notify tagged users
+      await Promise.all(
+        validTaggedUsers.map((taggedId) =>
+          this.grpcNotificationService.sendPostNotification(
+            taggedId.toString(),
+            "POST_TAG",
+            "You were tagged in a post",
+            "Someone tagged you in their post",
+            {
+              postId: "", // Will be updated after post creation
+              taggedBy: userId,
+            }
+          )
+        )
+      );
+    }
+
     if (mediaUrls.length) {
       this.logger.log("Getting signed URLs for media", { files: mediaUrls });
       signedUrls = await this.grpcMediaService.getSignedUploadUrls(mediaUrls);
@@ -63,32 +125,74 @@ export class PostService {
       const postData = {
         content: dto.content,
         visibility: dto.visibility,
-        UserId: new Types.ObjectId(userId),
+        UserId: new Types.ObjectId(userId.toString()),
         keywords: dto.content.split(" "),
-        media: fileKeys, // Store the file keys in media array
-        signedMediaUrls: publicUrls, // Store the public URLs for viewing
+        media: fileKeys,
+        signedMediaUrls: publicUrls,
+        taggedUsers: dto.taggedUsers
+          ? dto.taggedUsers.map((id) => new Types.ObjectId(id))
+          : [],
       };
 
       const created = await this.postModel.create(postData);
       this.logger.log("Post created successfully", { postId: created._id });
 
+      // Update notifications with post ID
+      if (dto.taggedUsers && dto.taggedUsers.length > 0) {
+        await Promise.all(
+          dto.taggedUsers.map((taggedId) =>
+            this.grpcNotificationService.sendPostNotification(
+              taggedId,
+              "POST_TAG",
+              "You were tagged in a post",
+              "Someone tagged you in their post",
+              {
+                postId: created._id.toString(),
+                taggedBy: userId,
+              }
+            )
+          )
+        );
+      }
+
       return {
         post: created,
-        signedUrls: signedUrls.urls, // Return the signed URLs for upload
+        signedUrls: signedUrls.urls,
       };
     } else {
       // Create post without media
       const postData = {
         content: dto.content,
         visibility: dto.visibility,
-        UserId: new Types.ObjectId(userId),
+        UserId: new Types.ObjectId(userId.toString()),
         keywords: dto.content.split(" "),
         media: [],
         signedMediaUrls: [],
+        taggedUsers: dto.taggedUsers
+          ? dto.taggedUsers.map((id) => new Types.ObjectId(id))
+          : [],
       };
 
       const created = await this.postModel.create(postData);
       this.logger.log("Post created successfully", { postId: created._id });
+
+      // Update notifications with post ID
+      if (dto.taggedUsers && dto.taggedUsers.length > 0) {
+        await Promise.all(
+          dto.taggedUsers.map((taggedId) =>
+            this.grpcNotificationService.sendPostNotification(
+              taggedId,
+              "POST_TAG",
+              "You were tagged in a post",
+              "Someone tagged you in their post",
+              {
+                postId: created._id.toString(),
+                taggedBy: userId,
+              }
+            )
+          )
+        );
+      }
 
       return {
         post: created,
@@ -336,38 +440,87 @@ export class PostService {
       const userIdStr = userId.toString();
       this.logger.log("Getting user feed", { userId: userIdStr, page, limit });
 
-      // Get following and followers
-      const [followingResponse, followersResponse] = await Promise.all([
-        this.grpcUserService.getFollowing(userIdStr),
-        this.grpcUserService.getFollowers(userIdStr),
-      ]);
+      // Get user's following and followers directly from user schema
+      const user = await this.userModel.findById(userIdStr);
+      if (!user) {
+        throw new NotFoundException(`User with id ${userIdStr} not found`);
+      }
 
-      // Ensure we have arrays, even if empty
-      const following = Array.isArray(followingResponse)
-        ? followingResponse
-        : [];
-      const followers = Array.isArray(followersResponse)
-        ? followersResponse
-        : [];
+      const following = user.following || [];
+      const followers = user.followers || [];
 
-      this.logger.debug("Following and followers", { following, followers });
+      this.logger.debug("User network details", {
+        userId: userIdStr,
+        followingCount: following.length,
+        followingIds: following,
+        followersCount: followers.length,
+        followersIds: followers,
+      });
 
-      const ids = [userIdStr, ...following, ...followers];
-      this.logger.debug("User IDs for feed", { ids });
+      // Convert string IDs to ObjectIds
+      const userIdObj = new Types.ObjectId(userIdStr);
+      const followingObjIds = following
+        .map((id: string) => {
+          try {
+            return new Types.ObjectId(id);
+          } catch (error) {
+            this.logger.error(
+              `Failed to convert following ID to ObjectId: ${id}`,
+              error
+            );
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      const followersObjIds = followers
+        .map((id: string) => {
+          try {
+            return new Types.ObjectId(id);
+          } catch (error) {
+            this.logger.error(
+              `Failed to convert follower ID to ObjectId: ${id}`,
+              error
+            );
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      const allUserIds = [userIdObj, ...followingObjIds, ...followersObjIds];
+
+      this.logger.debug("Combined user IDs for feed query", {
+        totalIds: allUserIds.length,
+        userIds: allUserIds
+          .filter((id): id is Types.ObjectId => id !== null)
+          .map((id) => id.toString()),
+      });
+
+      const query = {
+        UserId: { $in: allUserIds },
+        deleted: false,
+        moderated: false,
+        $or: [
+          { visibility: "public" },
+          { visibility: "private", UserId: { $in: followersObjIds } },
+          { UserId: userIdObj }, // Always show user's own posts
+        ],
+      };
+
+      this.logger.debug("Executing feed query", {
+        query: JSON.stringify(query, null, 2),
+      });
 
       const posts = await this.postModel
-        .find({
-          UserId: { $in: ids },
-          deleted: false,
-          moderated: false,
-          $or: [
-            { visibility: "public" },
-            { visibility: "private", UserId: { $in: followers } },
-          ],
-        })
+        .find(query)
         .skip((page - 1) * limit)
         .limit(limit)
         .sort({ createdAt: -1 });
+
+      this.logger.debug("Found posts", {
+        count: posts.length,
+        postIds: posts.map((post) => post._id.toString()),
+      });
 
       // Get interaction counts for all posts
       const postsWithCounts = await Promise.all(
@@ -384,20 +537,15 @@ export class PostService {
         })
       );
 
-      const total = await this.postModel.countDocuments({
-        UserId: { $in: ids },
-        deleted: false,
-        moderated: false,
-        $or: [
-          { visibility: "public" },
-          { visibility: "private", UserId: { $in: followers } },
-        ],
-      });
+      const total = await this.postModel.countDocuments(query);
 
-      this.logger.log("Retrieved user feed", {
+      this.logger.debug("Feed query results", {
         userId: userIdStr,
-        count: posts.length,
-        total,
+        postsFound: posts.length,
+        totalPosts: total,
+        page,
+        limit,
+        postIds: posts.map((post) => post._id.toString()),
       });
 
       return { posts: postsWithCounts, total };
@@ -499,12 +647,57 @@ export class PostService {
     }
   }
 
-  async getAllPosts() {
-    this.logger.log("Getting all posts");
-    const posts = await this.postModel
-      .find({ deleted: false })
-      .sort({ createdAt: -1 });
-    return { posts };
+  async getAllPosts(page?: number, limit?: number) {
+    try {
+      this.logger.log("Getting all posts", { page, limit });
+
+      const query = this.postModel
+        .find({ deleted: false })
+        .sort({ createdAt: -1 });
+
+      // Only apply pagination if both page and limit are provided
+      if (page !== undefined && limit !== undefined) {
+        query.skip((page - 1) * limit).limit(limit);
+      }
+
+      const posts = await query.exec();
+
+      // Get interaction counts for all posts
+      const postsWithCounts = await Promise.all(
+        posts.map(async (post) => {
+          try {
+            const postObj = post.toObject();
+            const interactionCounts = await this.getPostInteractionCounts(
+              post._id.toString()
+            );
+            return {
+              ...postObj,
+              reactionCount: interactionCounts.reactionCount,
+              commentCount: interactionCounts.commentCount,
+            };
+          } catch (error) {
+            this.logger.error(
+              `Error getting interaction counts for post ${post._id}: ${error.message}`
+            );
+            // Return post without interaction counts if there's an error
+            return {
+              ...post.toObject(),
+              reactionCount: 0,
+              commentCount: 0,
+            };
+          }
+        })
+      );
+
+      this.logger.log("Retrieved all posts", {
+        count: posts.length,
+      });
+
+      return { posts: postsWithCounts };
+    } catch (error) {
+      this.logger.error(`Error in getAllPosts: ${error.message}`);
+      throw error;
+    }
   }
 
   async getReportedPosts() {
@@ -526,19 +719,6 @@ export class PostService {
     post.reportReason = reason;
     await post.save();
     const UserId = post.UserId.toString();
-    // await this.kafkaProducer.emit("post.flagged", { postId, reason });
-
-    // Notify post owner about the report
-    await this.grpcNotificationService.sendPostNotification(
-      UserId,
-      "POST_REPORTED",
-      "Your Post Has Been Reported",
-      "Your post has been reported for review",
-      {
-        postId: post._id.toString(),
-        reason,
-      }
-    );
 
     this.logger.log("Post flagged successfully", { postId });
     return {
@@ -561,18 +741,6 @@ export class PostService {
       await this.grpcMediaService.deleteMedia(post.media);
     }
     const UserId = post.UserId.toString();
-    // await this.kafkaProducer.emit("post.deleted", { postId });
-
-    // Notify post owner about deletion
-    await this.grpcNotificationService.sendPostNotification(
-      UserId,
-      "POST_DELETED",
-      "Your Post Has Been Deleted",
-      "Your post has been deleted by an administrator",
-      {
-        postId: post._id.toString(),
-      }
-    );
 
     this.logger.log("Post deleted by admin", { postId });
     return {
@@ -606,5 +774,119 @@ export class PostService {
         commentCount: 0,
       };
     }
+  }
+
+  async reportPost(postId: string, userId: string, reason: string) {
+    this.logger.log("Reporting post", { postId, userId, reason });
+
+    const post = await this.postModel.findById(postId);
+    if (!post || post.deleted) {
+      this.logger.warn("Post not found or already deleted", { postId });
+      throw new NotFoundException("Post not found");
+    }
+
+    // Check if user has already reported this post
+    const hasReported = post.reportHistory.some(
+      (report) => report.userId.toString() === userId
+    );
+
+    if (hasReported) {
+      throw new BadRequestException("You have already reported this post");
+    }
+
+    // Add report to history
+    post.reportHistory.push({
+      userId: new Types.ObjectId(userId),
+      reason,
+      createdAt: new Date(),
+    });
+
+    // Update report count
+    post.reportCount += 1;
+    post.isReported = true;
+    post.reportReason = reason; // Keep the latest reason
+
+    await post.save();
+
+    // Notify post owner about the report
+    const postOwnerId = post.UserId.toString();
+    await this.grpcNotificationService.sendPostNotification(
+      postOwnerId,
+      "POST_REPORTED",
+      "Your Post Has Been Reported",
+      "Your post has been reported for review",
+      {
+        postId: post._id.toString(),
+        reason,
+        reportCount: post.reportCount.toString(),
+      }
+    );
+
+    this.logger.log("Post reported successfully", {
+      postId,
+      userId,
+      reportCount: post.reportCount,
+    });
+
+    return {
+      message: "Post reported successfully",
+      success: true,
+      reportCount: post.reportCount,
+    };
+  }
+
+  async getTaggedPosts(userId: string, page = 1, limit = 10) {
+    this.logger.log("Getting posts where user is tagged", {
+      userId,
+      page,
+      limit,
+    });
+
+    const posts = await this.postModel
+      .find({
+        taggedUsers: new Types.ObjectId(userId),
+        deleted: false,
+        moderated: false,
+      })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    // Get interaction counts and signed URLs for all posts
+    const postsWithCounts = await Promise.all(
+      posts.map(async (post) => {
+        const postObj = post.toObject();
+        const interactionCounts = await this.getPostInteractionCounts(
+          post._id.toString()
+        );
+        return {
+          ...postObj,
+          reactionCount: interactionCounts.reactionCount,
+          commentCount: interactionCounts.commentCount,
+        };
+      })
+    );
+
+    const total = await this.postModel.countDocuments({
+      taggedUsers: new Types.ObjectId(userId),
+      deleted: false,
+      moderated: false,
+    });
+
+    this.logger.log("Retrieved tagged posts", {
+      userId,
+      count: posts.length,
+      total,
+      page,
+      limit,
+    });
+
+    return {
+      posts: postsWithCounts,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }

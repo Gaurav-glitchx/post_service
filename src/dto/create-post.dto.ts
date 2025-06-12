@@ -1,19 +1,30 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsArray, IsIn, IsNotEmpty } from 'class-validator';
+import { ApiProperty } from "@nestjs/swagger";
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsIn,
+  IsNotEmpty,
+} from "class-validator";
 
 export class CreatePostDto {
-  @ApiProperty({ example: 'Hello world!' })
+  @ApiProperty({ example: "Hello world!" })
   @IsString()
   @IsNotEmpty()
   content: string;
 
-  @ApiProperty({ example: ['media1.jpg', 'media2.png'], required: false })
+  @ApiProperty({ example: ["media1.jpg", "media2.png"], required: false })
   @IsArray()
   @IsOptional()
   media?: string[];
 
-  @ApiProperty({ example: 'public', enum: ['public', 'private'] })
+  @ApiProperty({ example: "public", enum: ["public", "private"] })
   @IsString()
-  @IsIn(['public', 'private'])
+  @IsIn(["public", "private"])
   visibility: string;
-} 
+
+  @ApiProperty({ example: ["userId1", "userId2"], required: false })
+  @IsArray()
+  @IsOptional()
+  taggedUsers?: string[];
+}

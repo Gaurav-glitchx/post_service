@@ -1,4 +1,4 @@
-import { Controller } from "@nestjs/common";
+import { Controller, Logger } from "@nestjs/common";
 import { GrpcMethod } from "@nestjs/microservices";
 import { PostService } from "./post.service";
 import { CreatePostDto } from "./dto/create-post.dto";
@@ -6,6 +6,8 @@ import { UpdatePostDto } from "./dto/update-post.dto";
 
 @Controller()
 export class PostGrpcController {
+  private readonly logger = new Logger(PostGrpcController.name);
+
   constructor(private readonly postService: PostService) {}
 
   @GrpcMethod("PostService", "CreatePost")
@@ -62,28 +64,88 @@ export class PostGrpcController {
     return this.postService.validatePost(data.postId);
   }
 
-  @GrpcMethod("PostService", "AllPosts")
+  @GrpcMethod("PostService", "allPosts")
   async allPosts() {
-    return this.postService.getAllPosts();
+    try {
+      this.logger.log("Handling allPosts gRPC request");
+      const result = await this.postService.getAllPosts();
+      this.logger.log("Successfully retrieved all posts", {
+        count: result.posts.length,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error("Error in allPosts gRPC method", {
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
   }
 
-  @GrpcMethod("PostService", "ReportedPosts")
+  @GrpcMethod("PostService", "reportedPosts")
   async reportedPosts() {
-    return this.postService.getReportedPosts();
+    try {
+      this.logger.log("Handling reportedPosts gRPC request");
+      const result = await this.postService.getReportedPosts();
+      this.logger.log("Successfully retrieved reported posts", {
+        count: result.posts.length,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error("Error in reportedPosts gRPC method", {
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
   }
 
-  @GrpcMethod("PostService", "FlagPost")
+  @GrpcMethod("PostService", "flagPost")
   async flagPost(data: { postId: string; reason: string }) {
-    return this.postService.flagPost(data.postId, data.reason);
+    try {
+      this.logger.log("Handling flagPost gRPC request", {
+        postId: data.postId,
+        reason: data.reason,
+      });
+      const result = await this.postService.flagPost(data.postId, data.reason);
+      this.logger.log("Successfully flagged post", { postId: data.postId });
+      return result;
+    } catch (error) {
+      this.logger.error("Error in flagPost gRPC method", {
+        postId: data.postId,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
   }
 
-  @GrpcMethod("PostService", "AdminDeletePost")
+  @GrpcMethod("PostService", "adminDeletePost")
   async adminDeletePost(data: { postId: string }) {
-    return this.postService.adminDeletePost(data.postId);
+    try {
+      this.logger.log("Handling adminDeletePost gRPC request", {
+        postId: data.postId,
+      });
+      const result = await this.postService.adminDeletePost(data.postId);
+      this.logger.log("Successfully deleted post", { postId: data.postId });
+      return result;
+    } catch (error) {
+      this.logger.error("Error in adminDeletePost gRPC method", {
+        postId: data.postId,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
   }
 
   @GrpcMethod("PostService", "GetPostInteractionCounts")
   async getPostInteractionCounts(data: { postId: string }) {
     return this.postService.getPostInteractionCounts(data.postId);
+  }
+
+  @GrpcMethod("PostService", "ReportPost")
+  async reportPost(data: { postId: string; userId: string; reason: string }) {
+    return this.postService.reportPost(data.postId, data.userId, data.reason);
   }
 }

@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   Req,
+  Logger,
 } from "@nestjs/common";
 import { Request } from "express";
 import {
@@ -38,16 +39,31 @@ interface RequestWithUser extends Request {
 @ApiBearerAuth()
 @Controller("posts")
 export class PostController {
-  constructor(private readonly postService: PostService) {}
+  constructor(
+    private readonly postService: PostService  ) {}
 
-  @ApiOperation({ summary: "Create a post" })
-  @ApiResponse({ status: 201, description: "Post created" })
+  
+
+  @ApiOperation({ summary: "Search posts" })
+  @ApiResponse({
+    status: 200,
+    description: "List of posts matching the search query",
+  })
+  @ApiQuery({ name: "q", required: true, description: "Search query" })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
   @UseGuards(GrpcAuthGuard)
-  @Post()
-  create(@Body() createPostDto: CreatePostDto, @Req() req: RequestWithUser) {
-    const UserId = req.user.userId;
-    return this.postService.create(createPostDto, UserId);
+  @Get("search")
+  search(
+    @Query("q") query: string,
+    @Query("page") page: number = 1,
+    @Query("limit") limit: number = 10,
+    @Req() req: RequestWithUser
+  ) {
+    return this.postService.search(query, page, limit, req.user);
   }
+
+  
 
   @ApiOperation({ summary: "Get all posts by user" })
   @ApiQuery({ name: "page", required: false })
@@ -78,20 +94,22 @@ export class PostController {
     return this.postService.getFeed(userId, page, limit);
   }
 
-  @ApiOperation({ summary: "Search posts by keyword" })
-  @ApiQuery({ name: "q", required: true })
-  @ApiQuery({ name: "page", required: false })
-  @ApiQuery({ name: "limit", required: false })
+  @ApiOperation({ summary: "Get posts where user is tagged" })
+  @ApiResponse({
+    status: 200,
+    description: "List of posts where user is tagged",
+  })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
   @UseGuards(GrpcAuthGuard)
-  @Get("search")
-  search(
+  @Get("tagged")
+  getTaggedPosts(
     @Req() req: RequestWithUser,
-    @Query("q") query: string,
     @Query("page") page: number = 1,
     @Query("limit") limit: number = 10
   ) {
     const userId = req.user.userId;
-    return this.postService.search(query, page, limit, userId);
+    return this.postService.getTaggedPosts(userId, page, limit);
   }
 
   @ApiOperation({ summary: "Get a post by ID" })
@@ -101,6 +119,15 @@ export class PostController {
   get(@Param("postId") postId: string, @Req() req: RequestWithUser) {
     const userId = req.user.userId;
     return this.postService.get(postId, userId);
+  }
+
+  @ApiOperation({ summary: "Create a post" })
+  @ApiResponse({ status: 201, description: "Post created" })
+  @UseGuards(GrpcAuthGuard)
+  @Post()
+  create(@Body() createPostDto: CreatePostDto, @Req() req: RequestWithUser) {
+    const UserId = req.user.userId;
+    return this.postService.create(createPostDto, UserId);
   }
 
   @ApiOperation({ summary: "Update a post" })
@@ -123,5 +150,73 @@ export class PostController {
   delete(@Param("postId") postId: string, @Req() req: RequestWithUser) {
     const userId = req.user.userId;
     return this.postService.delete(postId, userId);
+  }
+
+  @ApiOperation({ summary: "Report a post" })
+  @ApiResponse({ status: 200, description: "Post reported successfully" })
+  @ApiResponse({
+    status: 400,
+    description: "Already reported or invalid request",
+  })
+  @ApiResponse({ status: 404, description: "Post not found" })
+  @UseGuards(GrpcAuthGuard)
+  @Post("report/:postId")
+  reportPost(
+    @Param("postId") postId: string,
+    @Body("reason") reason: string,
+    @Req() req: RequestWithUser
+  ) {
+    const userId = req.user.userId;
+    return this.postService.reportPost(postId, userId, reason);
+  }
+
+  @ApiOperation({ summary: "Validate a post" })
+  @ApiResponse({ status: 200, description: "Post validated" })
+  @UseGuards(GrpcAuthGuard)
+  @Get("validate/:postId")
+  validatePost(@Param("postId") postId: string) {
+    return this.postService.validatePost(postId);
+  }
+
+  @ApiOperation({ summary: "Get all posts (admin only)" })
+  @ApiResponse({ status: 200, description: "List of all posts" })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @UseGuards(GrpcAuthGuard)
+  @Get("admin/all")
+  getAllPosts(
+    @Query("page") page: number = 1,
+    @Query("limit") limit: number = 10
+  ) {
+    return this.postService.getAllPosts(page, limit);
+  }
+
+  @ApiOperation({ summary: "Get reported posts (admin only)" })
+  @ApiResponse({ status: 200, description: "List of reported posts" })
+  @UseGuards(GrpcAuthGuard)
+  @Get("admin/reported")
+  getReportedPosts() {
+    return this.postService.getReportedPosts();
+  }
+
+  @ApiOperation({ summary: "Flag a post (admin only)" })
+  @ApiResponse({ status: 200, description: "Post flagged" })
+  @UseGuards(GrpcAuthGuard)
+  @Post("flag/:postId")
+  flagPost(
+    @Param("postId") postId: string,
+    @Body("reason") reason: string,
+    @Req() req: RequestWithUser
+  ) {
+    const userId = req.user.userId;
+    return this.postService.flagPost(postId, reason);
+  }
+
+  @ApiOperation({ summary: "Delete a post (admin only)" })
+  @ApiResponse({ status: 200, description: "Post deleted" })
+  @UseGuards(GrpcAuthGuard)
+  @Delete("admin/:postId")
+  adminDeletePost(@Param("postId") postId: string) {
+    return this.postService.adminDeletePost(postId);
   }
 }

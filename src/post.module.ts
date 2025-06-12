@@ -7,7 +7,6 @@ import { Post, PostSchema } from "./post.schema";
 import { PostController } from "./post.controller";
 import { PostService } from "./post.service";
 // import { KafkaProducerService } from './kafka-producer.service';
-import { AuthGuard } from "./auth.guard";
 
 import { PostGrpcController } from "./post.grpc.controller";
 import { GrpcAuthService } from "./grpc/grpc-auth.service";
@@ -17,12 +16,14 @@ import { GrpcNotificationService } from "./grpc/grpc-notification.service";
 import { CustomLogger } from "./logger/logger.service";
 import { GrpcAuthGuard } from "./guards/grpc-auth.guard";
 import { GrpcAuthModule } from "./guards/grpc-auth.module";
-import { GrpcModule } from './grpc/grpc.module';
+import { GrpcModule } from "./grpc/grpc.module";
+import { User, UserSchema } from "./user.schema";
 
 @Module({
   imports: [
     GrpcAuthModule,
     MongooseModule.forFeature([{ name: Post.name, schema: PostSchema }]),
+    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
     ClientsModule.registerAsync([
       {
         name: "AUTH_PACKAGE",
@@ -44,6 +45,16 @@ import { GrpcModule } from './grpc/grpc.module';
             package: "user",
             protoPath: join(process.cwd(), "dist/grpc/proto/user.proto"),
             url: "localhost:50051",
+            loader: {
+              keepCase: true,
+              longs: String,
+              enums: String,
+              defaults: true,
+              oneofs: true            },
+            channelOptions: {
+              "grpc.max_receive_message_length": 1024 * 1024 * 10, // 10MB
+              "grpc.max_send_message_length": 1024 * 1024 * 10, // 10MB
+            },
           },
         }),
         inject: [ConfigService],
@@ -76,20 +87,17 @@ import { GrpcModule } from './grpc/grpc.module';
         inject: [ConfigService],
       },
     ]),
-    GrpcModule
+    GrpcModule,
   ],
   controllers: [PostController, PostGrpcController],
   providers: [
     PostService,
-    // KafkaProducerService,
-    // AuthGuard,
     GrpcAuthService,
     GrpcUserService,
     GrpcMediaService,
     GrpcNotificationService,
     CustomLogger,
-    GrpcAuthGuard
-
+    GrpcAuthGuard,
   ],
   exports: [PostService],
 })

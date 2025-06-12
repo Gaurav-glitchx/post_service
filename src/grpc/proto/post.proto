@@ -14,10 +14,10 @@ service PostService {
   rpc GetPostInteractionCounts (GetPostInteractionCountsRequest) returns (GetPostInteractionCountsResponse);
   
   // Admin service methods
-  rpc AllPosts (Empty) returns (PostList);
-  rpc ReportedPosts (Empty) returns (PostList);
-  rpc FlagPost (FlagPostRequest) returns (PostResponse);
-  rpc AdminDeletePost (PostIdRequest) returns (PostResponse);
+  rpc allPosts (Empty) returns (PostList);
+  rpc reportedPosts (Empty) returns (PostList);
+  rpc flagPost (FlagPostRequest) returns (PostResponse);
+  rpc adminDeletePost (PostIdRequest) returns (PostResponse);
 }
 
 message Post {

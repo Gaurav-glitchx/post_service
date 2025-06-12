@@ -28,6 +28,9 @@ export class Post extends Document {
   @Prop({ type: [String], default: [] })
   keywords: string[];
 
+  @Prop({ type: [Types.ObjectId], default: [] })
+  taggedUsers: Types.ObjectId[];
+
   @Prop({ default: false })
   deleted: boolean;
 
@@ -39,6 +42,25 @@ export class Post extends Document {
 
   @Prop()
   reportReason: string;
+
+  @Prop({ default: 0 })
+  reportCount: number;
+
+  @Prop({
+    type: [
+      {
+        userId: Types.ObjectId,
+        reason: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  reportHistory: Array<{
+    userId: Types.ObjectId;
+    reason: string;
+    createdAt: Date;
+  }>;
 }
 
 export const PostSchema = SchemaFactory.createForClass(Post);

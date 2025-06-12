@@ -9,16 +9,21 @@ export class CustomLogger implements LoggerService {
 
   constructor(private configService: ConfigService) {
     const customStringify = (obj: any) => {
+      if (!obj) return "";
       const seen = new WeakSet();
-      return JSON.stringify(obj, (key, value) => {
-        if (typeof value === "object" && value !== null) {
-          if (seen.has(value)) {
-            return "[Circular]";
+      return JSON.stringify(
+        obj,
+        (key, value) => {
+          if (typeof value === "object" && value !== null) {
+            if (seen.has(value)) {
+              return "[Circular]";
+            }
+            seen.add(value);
           }
-          seen.add(value);
-        }
-        return value;
-      });
+          return value;
+        },
+        2
+      );
     };
 
     this.logger = createLogger({
@@ -34,11 +39,20 @@ export class CustomLogger implements LoggerService {
         new transports.Console({
           format: format.combine(
             format.colorize(),
-            format.printf(({ timestamp, level, message, context, ...meta }) => {
-              return `${timestamp} [${level}] ${context ? `[${context}] ` : ""}${message} ${
-                Object.keys(meta).length ? customStringify(meta) : ""
-              }`;
-            })
+            format.printf(
+              ({ timestamp, level, message, context, ms, ...meta }) => {
+                // Remove the array-like keys from meta
+                const cleanMeta = Object.fromEntries(
+                  Object.entries(meta).filter(([key]) => !/^\d+$/.test(key))
+                );
+
+                const metaString = Object.keys(cleanMeta).length
+                  ? `\n${customStringify(cleanMeta)}`
+                  : "";
+
+                return `${timestamp} [${level}] ${context ? `[${context}] ` : ""}${message}${metaString} ${ms}`;
+              }
+            )
           ),
         }),
         new transports.File({
