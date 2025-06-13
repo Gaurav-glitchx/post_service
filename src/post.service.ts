@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import mongoose, { Model, Types } from "mongoose";
-import { Post, PostDocument } from "./post.schema";
+import { Post, PostDocument, PostVisibility } from "./post.schema";
 import { CreatePostDto } from "./dto/create-post.dto";
 import { UpdatePostDto } from "./dto/update-post.dto";
 // import { KafkaProducerService } from "./kafka-producer.service";
@@ -201,12 +201,42 @@ export class PostService {
     }
   }
 
-  async get(postId: string, user: any) {
-    this.logger.log("Getting post", { postId, userId: user.id });
+  async get(postId: string, userid: any) {
+    this.logger.log("Getting post", { postId, userId: userid });
     const post = await this.postModel.findById(postId);
     if (!post || post.deleted || post.moderated) {
       this.logger.warn("Post not found or unavailable", { postId });
       throw new NotFoundException("Post not found");
+    }
+
+    // Check post visibility
+    const postUserId = post.UserId.toString();
+    const currentUserId = userid.toString();
+
+    // If post is private, check if user has access
+    if (post.visibility === PostVisibility.PRIVATE) {
+      // Allow access if user is the post owner
+      if (postUserId === currentUserId) {
+        this.logger.debug("User accessing their own private post", {
+          postId,
+          userId: currentUserId,
+        });
+      } else {
+        // Check if user is a follower of the post owner
+        const postOwner = await this.userModel.findById(postUserId);
+        if (!postOwner || !postOwner.followers.includes(currentUserId)) {
+          this.logger.warn("Unauthorized access to private post", {
+            postId,
+            userId: currentUserId,
+            postOwnerId: postUserId,
+          });
+          throw new ForbiddenException("You don't have access to this post");
+        }
+        this.logger.debug("Follower accessing private post", {
+          postId,
+          userId: currentUserId,
+        });
+      }
     }
 
     // Get interaction counts
@@ -888,5 +918,94 @@ export class PostService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  async getSavedPosts(userId: string, page: number = 1, limit: number = 10) {
+    this.logger.log("Getting saved posts", { userId, page, limit });
+    const skip = (page - 1) * limit;
+
+    const posts = await this.postModel
+      .find({
+        savedBy: new Types.ObjectId(userId),
+        deleted: false,
+        moderated: false,
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .exec();
+
+    const total = await this.postModel.countDocuments({
+      savedBy: new Types.ObjectId(userId),
+      deleted: false,
+      moderated: false,
+    });
+
+    // Get interaction counts for each post
+    const postsWithInteractions = await Promise.all(
+      posts.map(async (post) => {
+        const [reactions, comments] = await Promise.all([
+          this.postModel.countDocuments({
+            _id: post._id,
+            "reactions.userId": { $exists: true },
+          }),
+          this.postModel.countDocuments({
+            _id: post._id,
+            "comments.userId": { $exists: true },
+          }),
+        ]);
+
+        const postObj = post.toObject();
+        return {
+          ...postObj,
+          reactionCount: reactions,
+          commentCount: comments,
+        };
+      })
+    );
+
+    return {
+      posts: postsWithInteractions,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async savePost(postId: string, userId: string) {
+    this.logger.log("Saving post", { postId, userId });
+
+    const post = await this.postModel.findById(postId);
+    if (!post || post.deleted || post.moderated) {
+      throw new NotFoundException("Post not found or unavailable");
+    }
+
+    // Check if post is already saved
+    if (post.savedBy.includes(new Types.ObjectId(userId))) {
+      return { message: "Post already saved" };
+    }
+
+    // Add user to savedBy array
+    post.savedBy.push(new Types.ObjectId(userId));
+    await post.save();
+
+    return { message: "Post saved successfully" };
+  }
+
+  async unsavePost(postId: string, userId: string) {
+    this.logger.log("Unsaving post", { postId, userId });
+
+    const post = await this.postModel.findById(postId);
+    if (!post || post.deleted || post.moderated) {
+      throw new NotFoundException("Post not found or unavailable");
+    }
+
+    // Remove user from savedBy array
+    post.savedBy = post.savedBy.filter(
+      (id) => id.toString() !== userId.toString()
+    );
+    await post.save();
+
+    return { message: "Post unsaved successfully" };
   }
 }

@@ -31,6 +31,9 @@ export class Post extends Document {
   @Prop({ type: [Types.ObjectId], default: [] })
   taggedUsers: Types.ObjectId[];
 
+  @Prop({ type: [Types.ObjectId], default: [] })
+  savedBy: Types.ObjectId[];
+
   @Prop({ default: false })
   deleted: boolean;
 

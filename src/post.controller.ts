@@ -10,8 +10,9 @@ import {
   UseGuards,
   Req,
   Logger,
+  Request,
 } from "@nestjs/common";
-import { Request } from "express";
+import { Request as ExpressRequest } from "express";
 import {
   ApiTags,
   ApiBearerAuth,
@@ -25,7 +26,7 @@ import { UpdatePostDto } from "./dto/update-post.dto";
 import { PostIdDto } from "./dto/post-id.dto";
 import { GrpcAuthGuard } from "./guards/grpc-auth.guard";
 
-interface RequestWithUser extends Request {
+interface RequestWithUser extends ExpressRequest {
   user: {
     userId: string;
     email: string;
@@ -39,10 +40,7 @@ interface RequestWithUser extends Request {
 @ApiBearerAuth()
 @Controller("posts")
 export class PostController {
-  constructor(
-    private readonly postService: PostService  ) {}
-
-  
+  constructor(private readonly postService: PostService) {}
 
   @ApiOperation({ summary: "Search posts" })
   @ApiResponse({
@@ -62,8 +60,6 @@ export class PostController {
   ) {
     return this.postService.search(query, page, limit, req.user);
   }
-
-  
 
   @ApiOperation({ summary: "Get all posts by user" })
   @ApiQuery({ name: "page", required: false })
@@ -169,6 +165,58 @@ export class PostController {
     const userId = req.user.userId;
     return this.postService.reportPost(postId, userId, reason);
   }
+   @Get("saved")
+  @UseGuards(GrpcAuthGuard)
+  @ApiOperation({ summary: "Get user's saved posts" })
+  @ApiResponse({
+    status: 200,
+    description: "Returns the user's saved posts",
+  })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  async getSavedPosts(
+    @Request() req: RequestWithUser,
+    @Query("page") page: number = 1,
+    @Query("limit") limit: number = 10
+  ) {
+    return this.postService.getSavedPosts(req.user.userId, page, limit);
+  }
+
+  @Post(":postId/save")
+  @UseGuards(GrpcAuthGuard)
+  @ApiOperation({ summary: "Save a post" })
+  @ApiResponse({
+    status: 200,
+    description: "Post saved successfully",
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Post not found",
+  })
+  async savePost(
+    @Request() req: RequestWithUser,
+    @Param("postId") postId: string
+  ) {
+    return this.postService.savePost(postId, req.user.userId);
+  }
+
+  @Delete(":postId/save")
+  @UseGuards(GrpcAuthGuard)
+  @ApiOperation({ summary: "Unsave a post" })
+  @ApiResponse({
+    status: 200,
+    description: "Post unsaved successfully",
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Post not found",
+  })
+  async unsavePost(
+    @Request() req: RequestWithUser,
+    @Param("postId") postId: string
+  ) {
+    return this.postService.unsavePost(postId, req.user.userId);
+  }
 
   @ApiOperation({ summary: "Validate a post" })
   @ApiResponse({ status: 200, description: "Post validated" })
@@ -219,4 +267,6 @@ export class PostController {
   adminDeletePost(@Param("postId") postId: string) {
     return this.postService.adminDeletePost(postId);
   }
+
+ 
 }
