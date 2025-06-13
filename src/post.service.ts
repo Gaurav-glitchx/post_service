@@ -97,20 +97,20 @@ export class PostService {
       }
 
       // Notify tagged users
-      await Promise.all(
-        validTaggedUsers.map((taggedId) =>
-          this.grpcNotificationService.sendPostNotification(
-            taggedId.toString(),
-            "POST_TAG",
-            "You were tagged in a post",
-            "Someone tagged you in their post",
-            {
-              postId: "", // Will be updated after post creation
-              taggedBy: userId,
-            }
-          )
-        )
-      );
+      // await Promise.all(
+      //   validTaggedUsers.map((taggedId) =>
+      //     this.grpcNotificationService.sendPostNotification(
+      //       taggedId.toString(),
+      //       "POST_TAG",
+      //       "You were tagged in a post",
+      //       "Someone tagged you in their post",
+      //       {
+      //         postId: "", // Will be updated after post creation
+      //         taggedBy: userId,
+      //       }
+      //     )
+      //   )
+      // );
     }
 
     if (mediaUrls.length) {
@@ -138,22 +138,22 @@ export class PostService {
       this.logger.log("Post created successfully", { postId: created._id });
 
       // Update notifications with post ID
-      if (dto.taggedUsers && dto.taggedUsers.length > 0) {
-        await Promise.all(
-          dto.taggedUsers.map((taggedId) =>
-            this.grpcNotificationService.sendPostNotification(
-              taggedId,
-              "POST_TAG",
-              "You were tagged in a post",
-              "Someone tagged you in their post",
-              {
-                postId: created._id.toString(),
-                taggedBy: userId,
-              }
-            )
-          )
-        );
-      }
+      // if (dto.taggedUsers && dto.taggedUsers.length > 0) {
+      //   await Promise.all(
+      //     dto.taggedUsers.map((taggedId) =>
+      //       this.grpcNotificationService.sendPostNotification(
+      //         taggedId,
+      //         "POST_TAG",
+      //         "You were tagged in a post",
+      //         "Someone tagged you in their post",
+      //         {
+      //           postId: created._id.toString(),
+      //           taggedBy: userId,
+      //         }
+      //       )
+      //     )
+      //   );
+      // }
 
       return {
         post: created,
@@ -176,23 +176,23 @@ export class PostService {
       const created = await this.postModel.create(postData);
       this.logger.log("Post created successfully", { postId: created._id });
 
-      // Update notifications with post ID
-      if (dto.taggedUsers && dto.taggedUsers.length > 0) {
-        await Promise.all(
-          dto.taggedUsers.map((taggedId) =>
-            this.grpcNotificationService.sendPostNotification(
-              taggedId,
-              "POST_TAG",
-              "You were tagged in a post",
-              "Someone tagged you in their post",
-              {
-                postId: created._id.toString(),
-                taggedBy: userId,
-              }
-            )
-          )
-        );
-      }
+      // // Update notifications with post ID
+      // if (dto.taggedUsers && dto.taggedUsers.length > 0) {
+      //   await Promise.all(
+      //     dto.taggedUsers.map((taggedId) =>
+      //       this.grpcNotificationService.sendPostNotification(
+      //         taggedId,
+      //         "POST_TAG",
+      //         "You were tagged in a post",
+      //         "Someone tagged you in their post",
+      //         {
+      //           postId: created._id.toString(),
+      //           taggedBy: userId,
+      //         }
+      //       )
+      //     )
+      //   );
+      // }
 
       return {
         post: created,
