@@ -447,7 +447,7 @@ export class PostService {
       $and: [
         {
           $or: [
-            { caption: { $regex: q, $options: "i" } },
+            { keywords: { $regex: q, $options: "i" } },
             { location: { $regex: q, $options: "i" } },
           ],
         },
