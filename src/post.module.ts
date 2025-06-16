@@ -6,8 +6,6 @@ import { join } from "path";
 import { Post, PostSchema } from "./post.schema";
 import { PostController } from "./post.controller";
 import { PostService } from "./post.service";
-// import { KafkaProducerService } from './kafka-producer.service';
-
 import { PostGrpcController } from "./post.grpc.controller";
 import { GrpcAuthService } from "./grpc/grpc-auth.service";
 import { GrpcUserService } from "./grpc/grpc-user.service";
@@ -18,12 +16,16 @@ import { GrpcAuthGuard } from "./guards/grpc-auth.guard";
 import { GrpcAuthModule } from "./guards/grpc-auth.module";
 import { GrpcModule } from "./grpc/grpc.module";
 import { User, UserSchema } from "./user.schema";
+import { SavedPost, SavedPostSchema } from "./saved-post.schema";
 
 @Module({
   imports: [
     GrpcAuthModule,
-    MongooseModule.forFeature([{ name: Post.name, schema: PostSchema }]),
-    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MongooseModule.forFeature([
+      { name: Post.name, schema: PostSchema },
+      { name: User.name, schema: UserSchema },
+      { name: SavedPost.name, schema: SavedPostSchema },
+    ]),
     ClientsModule.registerAsync([
       {
         name: "AUTH_PACKAGE",
@@ -50,7 +52,8 @@ import { User, UserSchema } from "./user.schema";
               longs: String,
               enums: String,
               defaults: true,
-              oneofs: true            },
+              oneofs: true,
+            },
             channelOptions: {
               "grpc.max_receive_message_length": 1024 * 1024 * 10, // 10MB
               "grpc.max_send_message_length": 1024 * 1024 * 10, // 10MB

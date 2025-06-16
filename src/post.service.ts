@@ -7,16 +7,23 @@ import {
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import mongoose, { Model, Types } from "mongoose";
-import { Post, PostDocument, PostVisibility } from "./post.schema";
+import {
+  Post,
+  PostDocument,
+  PostVisibility,
+  TaggedUserInfo,
+  PaginatedResponse,
+} from "./post.schema";
 import { CreatePostDto } from "./dto/create-post.dto";
 import { UpdatePostDto } from "./dto/update-post.dto";
-// import { KafkaProducerService } from "./kafka-producer.service";
 import { GrpcUserService } from "./grpc/grpc-user.service";
 import { GrpcMediaService } from "./grpc/grpc-media.service";
 import { GrpcNotificationService } from "./grpc/grpc-notification.service";
 import { CustomLogger } from "./logger/logger.service";
 import { GrpcService } from "./grpc/grpc.service";
 import { User, UserDocument } from "./user.schema";
+import { SavedPost } from "./saved-post.schema";
+import { ErrorMessages, SuccessMessages } from "./constants/error-messages";
 
 interface SignedUrl {
   fileKey: string;
@@ -31,12 +38,13 @@ const ALLOWED_MEDIA_TYPES = [
   "video/mp4",
 ];
 const MAX_MEDIA_FILES = 5;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 @Injectable()
 export class PostService {
   constructor(
-    @InjectModel(Post.name) private postModel: Model<PostDocument>,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    @InjectModel(SavedPost.name)
+    private readonly savedPostModel: Model<SavedPost>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     // private readonly kafkaProducer: KafkaProducerService,
     private readonly grpcUserService: GrpcUserService,
@@ -48,157 +56,144 @@ export class PostService {
     this.logger.setContext("PostService");
   }
 
-  async create(dto: CreatePostDto, userId: any) {
-    this.logger.log("Creating new post", { UserId: userId });
-    let mediaUrls = dto.media || [];
-    let signedUrls = [];
+  async create(createPostDto: CreatePostDto, userId: string): Promise<Post> {
+    this.logger.log("Creating post", { userId });
 
-    // Validate tagged users if provided
-    if (dto.taggedUsers && dto.taggedUsers.length > 0) {
-      // Convert string IDs to ObjectIds
-      const taggedUserIds = dto.taggedUsers
-        .map((id) => {
-          try {
-            return new Types.ObjectId(id);
-          } catch (error) {
-            this.logger.warn("Invalid tagged user ID format", { userId: id });
-            return null;
-          }
-        })
-        .filter((id): id is Types.ObjectId => id !== null);
-
-      // Verify all tagged users exist
-      const validUsers = await Promise.all(
-        taggedUserIds.map(async (taggedId) => {
-          try {
-            const user = await this.grpcUserService.getUser(
-              taggedId.toString()
-            );
-            return user.exists ? taggedId : null;
-          } catch (error) {
-            this.logger.warn("Invalid tagged user", {
-              userId: taggedId.toString(),
-            });
-            return null;
-          }
-        })
-      );
-
-      // Filter out invalid users
-      const validTaggedUsers = validUsers.filter(
-        (id): id is Types.ObjectId => id !== null
-      );
-
-      if (validTaggedUsers.length !== dto.taggedUsers.length) {
-        this.logger.warn("Some tagged users are invalid", {
-          provided: dto.taggedUsers.length,
-          valid: validTaggedUsers.length,
-        });
+    try {
+      const user = await this.grpcUserService.getUserNameById(userId);
+      if (!user) {
+        throw new NotFoundException(ErrorMessages.USER_NOT_FOUND);
       }
 
-      // Notify tagged users
-      // await Promise.all(
-      //   validTaggedUsers.map((taggedId) =>
-      //     this.grpcNotificationService.sendPostNotification(
-      //       taggedId.toString(),
-      //       "POST_TAG",
-      //       "You were tagged in a post",
-      //       "Someone tagged you in their post",
-      //       {
-      //         postId: "", // Will be updated after post creation
-      //         taggedBy: userId,
-      //       }
-      //     )
-      //   )
-      // );
+      // Extract keywords from content
+      const keywords = this.extractKeywords(createPostDto.content);
+
+      const post = new this.postModel({
+        ...createPostDto,
+        UserId: new Types.ObjectId(userId),
+        username: user.username || "unknown",
+        fullName: user.fullName || "Unknown User",
+        keywords,
+        media: createPostDto.mediaKeys || [], // Store mediaKeys directly in media field
+      });
+
+      // Handle tagged users
+      if (createPostDto.taggedUsers && createPostDto.taggedUsers.length > 0) {
+        // Validate user IDs
+        const validUserIds = createPostDto.taggedUsers.filter((id) => {
+          try {
+            new Types.ObjectId(id);
+            return true;
+          } catch (error) {
+            this.logger.warn(`Invalid user ID format: ${id}`);
+            return false;
+          }
+        });
+
+        if (validUserIds.length === 0) {
+          this.logger.warn("No valid user IDs found in taggedUsers");
+          post.taggedUsers = [];
+          post.taggedUsersInfo = [];
+        } else {
+          const taggedUsersInfo = await Promise.all(
+            validUserIds.map(async (taggedUserId) => {
+              try {
+                const taggedUser =
+                  await this.grpcUserService.getUserNameById(taggedUserId);
+                if (!taggedUser) {
+                  this.logger.warn(`Tagged user not found: ${taggedUserId}`);
+                  return null;
+                }
+                return {
+                  userId: new Types.ObjectId(taggedUserId),
+                  username: taggedUser.username || "unknown",
+                  fullName: taggedUser.fullName || "Unknown User",
+                };
+              } catch (error) {
+                this.logger.error(
+                  `Error fetching tagged user info: ${taggedUserId}`,
+                  error.stack
+                );
+                return null;
+              }
+            })
+          );
+
+          // Filter out null values from failed user lookups
+          const validTaggedUsersInfo = taggedUsersInfo.filter(
+            (info) => info !== null
+          );
+
+          post.taggedUsers = validTaggedUsersInfo.map((info) => info.userId);
+          post.taggedUsersInfo = validTaggedUsersInfo;
+        }
+      }
+
+      await post.save();
+      return post;
+    } catch (error) {
+      this.logger.error("Error creating post", error.stack);
+      throw error;
     }
+  }
 
-    if (mediaUrls.length) {
-      this.logger.log("Getting signed URLs for media", { files: mediaUrls });
-      signedUrls = await this.grpcMediaService.getSignedUploadUrls(mediaUrls);
+  private extractKeywords(content: string): string[] {
+    // Remove special characters and convert to lowercase
+    const cleanContent = content.toLowerCase().replace(/[^\w\s]/g, "");
 
-      // Extract file keys and public URLs from the signed URLs response
-      const fileKeys = signedUrls.urls.map((url: SignedUrl) => url.fileKey);
-      const publicUrls = signedUrls.urls.map((url: SignedUrl) => url.publicUrl);
+    // Split into words
+    const words = cleanContent.split(/\s+/);
 
-      // Create post with media URLs
-      const postData = {
-        content: dto.content,
-        visibility: dto.visibility,
-        UserId: new Types.ObjectId(userId.toString()),
-        keywords: dto.content.split(" "),
-        media: fileKeys,
-        signedMediaUrls: publicUrls,
-        taggedUsers: dto.taggedUsers
-          ? dto.taggedUsers.map((id) => new Types.ObjectId(id))
-          : [],
-      };
+    // Remove common words (stop words)
+    const stopWords = new Set([
+      "a",
+      "an",
+      "the",
+      "and",
+      "or",
+      "but",
+      "in",
+      "on",
+      "at",
+      "to",
+      "for",
+      "with",
+      "by",
+      "about",
+      "like",
+      "through",
+      "over",
+      "before",
+      "between",
+      "after",
+      "since",
+      "without",
+      "under",
+      "within",
+      "along",
+      "following",
+      "across",
+      "behind",
+      "beyond",
+      "plus",
+      "except",
+      "but",
+      "up",
+      "out",
+      "around",
+      "down",
+      "off",
+      "above",
+      "near",
+    ]);
 
-      const created = await this.postModel.create(postData);
-      this.logger.log("Post created successfully", { postId: created._id });
+    // Filter out stop words and short words
+    const keywords = words.filter(
+      (word) => word.length > 2 && !stopWords.has(word)
+    );
 
-      // Update notifications with post ID
-      // if (dto.taggedUsers && dto.taggedUsers.length > 0) {
-      //   await Promise.all(
-      //     dto.taggedUsers.map((taggedId) =>
-      //       this.grpcNotificationService.sendPostNotification(
-      //         taggedId,
-      //         "POST_TAG",
-      //         "You were tagged in a post",
-      //         "Someone tagged you in their post",
-      //         {
-      //           postId: created._id.toString(),
-      //           taggedBy: userId,
-      //         }
-      //       )
-      //     )
-      //   );
-      // }
-
-      return {
-        post: created,
-        signedUrls: signedUrls.urls,
-      };
-    } else {
-      // Create post without media
-      const postData = {
-        content: dto.content,
-        visibility: dto.visibility,
-        UserId: new Types.ObjectId(userId.toString()),
-        keywords: dto.content.split(" "),
-        media: [],
-        signedMediaUrls: [],
-        taggedUsers: dto.taggedUsers
-          ? dto.taggedUsers.map((id) => new Types.ObjectId(id))
-          : [],
-      };
-
-      const created = await this.postModel.create(postData);
-      this.logger.log("Post created successfully", { postId: created._id });
-
-      // // Update notifications with post ID
-      // if (dto.taggedUsers && dto.taggedUsers.length > 0) {
-      //   await Promise.all(
-      //     dto.taggedUsers.map((taggedId) =>
-      //       this.grpcNotificationService.sendPostNotification(
-      //         taggedId,
-      //         "POST_TAG",
-      //         "You were tagged in a post",
-      //         "Someone tagged you in their post",
-      //         {
-      //           postId: created._id.toString(),
-      //           taggedBy: userId,
-      //         }
-      //       )
-      //     )
-      //   );
-      // }
-
-      return {
-        post: created,
-        signedUrls: [],
-      };
-    }
+    // Remove duplicates
+    return [...new Set(keywords)];
   }
 
   async get(postId: string, userid: any) {
@@ -240,7 +235,10 @@ export class PostService {
     }
 
     // Get interaction counts
-    const interactionCounts = await this.getPostInteractionCounts(postId);
+    const interactionCounts = await this.getPostInteractionCounts(
+      postId,
+      userid
+    );
 
     // Add interaction counts to the post response
     const postResponse = post.toObject();
@@ -248,406 +246,253 @@ export class PostService {
       ...postResponse,
       reactionCount: interactionCounts.reactionCount,
       commentCount: interactionCounts.commentCount,
+      isLiked: interactionCounts.isLiked,
     };
   }
 
-  private validateMediaFiles(files: string[]): void {
-    if (files.length > MAX_MEDIA_FILES) {
-      throw new BadRequestException(
-        `Maximum ${MAX_MEDIA_FILES} media files allowed`
-      );
-    }
+  async update(
+    postId: string,
+    updatePostDto: UpdatePostDto,
+    userId: string
+  ): Promise<Post> {
+    this.logger.log("Updating post", { postId, userId });
 
-    // Validate file types
-    files.forEach((file) => {
-      const extension = file.split(".").pop()?.toLowerCase();
-      if (!extension) {
-        throw new BadRequestException("Invalid file name");
-      }
-
-      const mimeType = this.getMimeType(extension);
-      if (!ALLOWED_MEDIA_TYPES.includes(mimeType)) {
-        throw new BadRequestException(
-          `File type ${extension} not allowed. Allowed types: jpg, png, gif, mp4`
-        );
-      }
-    });
-  }
-
-  private getMimeType(extension: string): string {
-    const mimeTypes: Record<string, string> = {
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      png: "image/png",
-      gif: "image/gif",
-      mp4: "video/mp4",
-    };
-    return mimeTypes[extension] || "";
-  }
-
-  async update(postId: string, dto: UpdatePostDto, userId: any) {
-    this.logger.log("Updating post", { postId, userId: userId });
     const post = await this.postModel.findById(postId);
-    if (!post || post.deleted || post.moderated) {
-      this.logger.warn("Post not found or unavailable", { postId });
-      throw new NotFoundException("Post not found");
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
     }
 
-    // Convert both IDs to strings for comparison
-    const postUserId = post.UserId.toString();
-    const currentUserId = userId.toString();
-
-    if (postUserId !== currentUserId) {
-      this.logger.warn("Unauthorized post update attempt", {
-        postId,
-        userId: userId,
-        postUserId,
-        currentUserId,
-      });
-      throw new ForbiddenException("Not your post");
+    if (post.UserId.toString() !== userId) {
+      throw new BadRequestException(ErrorMessages.NOT_POST_OWNER);
     }
 
-    // Handle media changes
-    let signedUrls = [];
-    let updatedMedia = [...post.media];
-    let updatedSignedMediaUrls = [...post.signedMediaUrls];
+    if (post.deleted) {
+      throw new BadRequestException(ErrorMessages.POST_NOT_AVAILABLE);
+    }
 
-    if (dto.media) {
-      // Validate new media files
-      this.validateMediaFiles(dto.media);
+    const updateData: any = { ...updatePostDto };
 
-      // If new media is provided, get signed URLs for upload
-      this.logger.log("Getting signed URLs for new media", {
-        files: dto.media,
-      });
-      signedUrls = await this.grpcMediaService.getSignedUploadUrls(dto.media);
-
-      // Add new media file keys and their public URLs
-      const newFileKeys = signedUrls.urls.map((url: SignedUrl) => url.fileKey);
-      const newPublicUrls = signedUrls.urls.map(
-        (url: SignedUrl) => url.publicUrl
+    // Handle tagged users update
+    if (updatePostDto.taggedUsers && updatePostDto.taggedUsers.length > 0) {
+      const taggedUsersInfo = await Promise.all(
+        updatePostDto.taggedUsers.map(async (taggedUserId: string) => {
+          const taggedUser =
+            await this.grpcUserService.getUserNameById(taggedUserId);
+          if (!taggedUser) {
+            throw new NotFoundException(ErrorMessages.USER_NOT_FOUND);
+          }
+          return {
+            userId: new Types.ObjectId(taggedUserId),
+            username: taggedUser.username || "unknown",
+            fullName: taggedUser.fullName || "Unknown User",
+          };
+        })
       );
 
-      updatedMedia = [...updatedMedia, ...newFileKeys];
-      updatedSignedMediaUrls = [...updatedSignedMediaUrls, ...newPublicUrls];
+      updateData.taggedUsers = updatePostDto.taggedUsers.map(
+        (id) => new Types.ObjectId(id)
+      );
+      updateData.taggedUsersInfo = taggedUsersInfo;
     }
 
-    // Handle media deletions if specified
-    if (dto.deleteMedia && dto.deleteMedia.length > 0) {
-      // Delete specified media files from storage
-      this.logger.log("Deleting specified media files", {
-        files: dto.deleteMedia,
-      });
-      await this.grpcMediaService.deleteMedia(dto.deleteMedia);
-
-      // Remove deleted media and their corresponding signed URLs
-      const deleteSet = new Set(dto.deleteMedia);
-      updatedMedia = updatedMedia.filter((fileKey) => !deleteSet.has(fileKey));
-      updatedSignedMediaUrls = updatedSignedMediaUrls.filter((_, index) => {
-        const mediaKey = updatedMedia[index];
-        return mediaKey && !deleteSet.has(mediaKey);
-      });
-    }
-
-    // Update post with new media arrays
-    const updateData = {
-      ...dto,
-      media: updatedMedia,
-      signedMediaUrls: updatedSignedMediaUrls,
-    };
-
-    // Update post content and other fields
-    Object.assign(post, updateData);
-    if (dto.content) post.keywords = dto.content.split(" ");
-    await post.save();
-
-    this.logger.log("Post updated successfully", {
+    const updatedPost = await this.postModel.findByIdAndUpdate(
       postId,
-      mediaCount: updatedMedia.length,
-      newMediaCount: dto.media ? dto.media.length : 0,
-      deletedMediaCount: dto.deleteMedia ? dto.deleteMedia.length : 0,
-    });
+      { $set: updateData },
+      { new: true }
+    );
 
-    // Return updated post and signed URLs if there are new media files
-    return {
-      post,
-      signedUrls: signedUrls,
-    };
-  }
-
-  async delete(postId: string, userid: any) {
-    this.logger.log("Deleting post", { postId, userId: userid });
-    const post = await this.postModel.findById(postId);
-    if (!post || post.deleted || post.moderated) {
-      this.logger.warn("Post not found or unavailable", { postId });
-      throw new NotFoundException("Post not found");
+    if (!updatedPost) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
     }
 
-    // Convert both IDs to strings for comparison
-    const postUserId = post.UserId.toString();
-    const currentUserId = userid.toString();
+    return updatedPost;
+  }
 
-    if (postUserId !== currentUserId) {
-      this.logger.warn("Unauthorized post deletion attempt", {
-        postId,
-        userId: userid,
-        postUserId,
-        currentUserId,
-      });
-      throw new ForbiddenException("Not your post");
+  async deletePost(postId: string, userId: string): Promise<void> {
+    this.logger.log("Deleting post", { postId, userId });
+
+    const post = await this.postModel.findById(postId);
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
+    }
+
+    if (post.UserId.toString() !== userId) {
+      throw new BadRequestException(ErrorMessages.NOT_POST_OWNER);
     }
 
     post.deleted = true;
     await post.save();
-    if (post.media.length) {
-      this.logger.log("Deleting associated media files", { files: post.media });
-      await this.grpcMediaService.deleteMedia(post.media);
-    }
-    // await this.kafkaProducer.emit("post.deleted", { postId });
-    this.logger.log("Post deleted successfully", { postId });
-    return post;
   }
 
-  async getByUser(userId: string, page = 1, limit = 10, user: any) {
+  async getByUser(
+    userId: string,
+    page = 1,
+    limit = 10,
+    userid: any
+  ): Promise<PaginatedResponse<any>> {
     this.logger.log("Getting posts by user", { userId, page, limit });
 
-    // Convert userId to ObjectId safely
-    let userIdObj;
-    try {
-      userIdObj = new mongoose.Types.ObjectId(userId);
-    } catch (error) {
-      this.logger.error("Invalid userId format", error.stack, {
-        userId,
-        error: error.message,
-      });
-      throw new BadRequestException("Invalid user ID format");
-    }
-
     const query = {
-      UserId: userIdObj,
+      UserId: new Types.ObjectId(userId),
       deleted: false,
       moderated: false,
     };
 
-    const posts = await this.postModel
-      .find(query)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .sort({ createdAt: -1 });
-
-    const total = await this.postModel.countDocuments(query);
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+      this.postModel.countDocuments(query),
+    ]);
 
     // Get interaction counts for all posts
     const postsWithCounts = await Promise.all(
       posts.map(async (post) => {
         const postObj = post.toObject();
         const interactionCounts = await this.getPostInteractionCounts(
-          post._id.toString()
+          post._id.toString(),
+          userid
         );
         return {
           ...postObj,
           reactionCount: interactionCounts.reactionCount,
           commentCount: interactionCounts.commentCount,
+          isLiked: interactionCounts.isLiked,
         };
       })
     );
 
-    this.logger.log("Retrieved user posts", {
-      userId,
-      count: posts.length,
-      total,
-    });
+    const totalPages = Math.ceil(total / limit);
 
-    return { posts: postsWithCounts, total };
+    return {
+      data: postsWithCounts,
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    };
   }
 
-  async getFeed(userId: any, page = 1, limit = 10) {
-    try {
-      if (!userId) {
-        throw new BadRequestException("UserId must be provided");
-      }
+  async getFeed(
+    userId: any,
+    page = 1,
+    limit = 10
+  ): Promise<PaginatedResponse<any>> {
+    this.logger.log("Getting user feed", { userId, page, limit });
 
-      const userIdStr = userId.toString();
-      this.logger.log("Getting user feed", { userId: userIdStr, page, limit });
+    // Get user's following list
+    const following = await this.grpcUserService.getFollowing(
+      userId.toString()
+    );
+    following.push(userId.toString()); // Include user's own posts
 
-      // Get user's following and followers directly from user schema
-      const user = await this.userModel.findById(userIdStr);
-      if (!user) {
-        throw new NotFoundException(`User with id ${userIdStr} not found`);
-      }
+    const query = {
+      UserId: { $in: following.map((id: string) => new Types.ObjectId(id)) },
+      deleted: false,
+      moderated: false,
+    };
 
-      const following = user.following || [];
-      const followers = user.followers || [];
-
-      this.logger.debug("User network details", {
-        userId: userIdStr,
-        followingCount: following.length,
-        followingIds: following,
-        followersCount: followers.length,
-        followersIds: followers,
-      });
-
-      // Convert string IDs to ObjectIds
-      const userIdObj = new Types.ObjectId(userIdStr);
-      const followingObjIds = following
-        .map((id: string) => {
-          try {
-            return new Types.ObjectId(id);
-          } catch (error) {
-            this.logger.error(
-              `Failed to convert following ID to ObjectId: ${id}`,
-              error
-            );
-            return null;
-          }
-        })
-        .filter(Boolean);
-
-      const followersObjIds = followers
-        .map((id: string) => {
-          try {
-            return new Types.ObjectId(id);
-          } catch (error) {
-            this.logger.error(
-              `Failed to convert follower ID to ObjectId: ${id}`,
-              error
-            );
-            return null;
-          }
-        })
-        .filter(Boolean);
-
-      const allUserIds = [userIdObj, ...followingObjIds, ...followersObjIds];
-
-      this.logger.debug("Combined user IDs for feed query", {
-        totalIds: allUserIds.length,
-        userIds: allUserIds
-          .filter((id): id is Types.ObjectId => id !== null)
-          .map((id) => id.toString()),
-      });
-
-      const query = {
-        UserId: { $in: allUserIds },
-        deleted: false,
-        moderated: false,
-        $or: [
-          { visibility: "public" },
-          { visibility: "private", UserId: { $in: followersObjIds } },
-          { UserId: userIdObj }, // Always show user's own posts
-        ],
-      };
-
-      this.logger.debug("Executing feed query", {
-        query: JSON.stringify(query, null, 2),
-      });
-
-      const posts = await this.postModel
+    const [posts, total] = await Promise.all([
+      this.postModel
         .find(query)
         .skip((page - 1) * limit)
         .limit(limit)
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 }),
+      this.postModel.countDocuments(query),
+    ]);
 
-      this.logger.debug("Found posts", {
-        count: posts.length,
-        postIds: posts.map((post) => post._id.toString()),
-      });
-
-      // Get interaction counts for all posts
-      const postsWithCounts = await Promise.all(
-        posts.map(async (post) => {
-          const postObj = post.toObject();
-          const interactionCounts = await this.getPostInteractionCounts(
-            post._id.toString()
-          );
-          return {
-            ...postObj,
-            reactionCount: interactionCounts.reactionCount,
-            commentCount: interactionCounts.commentCount,
-          };
-        })
-      );
-
-      const total = await this.postModel.countDocuments(query);
-
-      this.logger.debug("Feed query results", {
-        userId: userIdStr,
-        postsFound: posts.length,
-        totalPosts: total,
-        page,
-        limit,
-        postIds: posts.map((post) => post._id.toString()),
-      });
-
-      return { posts: postsWithCounts, total };
-    } catch (error) {
-      this.logger.error("Error getting user feed", error.stack, {
-        userId,
-        page,
-        limit,
-        error: error.message,
-      });
-      throw error;
-    }
-  }
-
-  async search(q: string, page = 1, limit = 10, user: any) {
-    this.logger.log("Searching posts", {
-      query: q,
-      userId: user.id,
-      page,
-      limit,
-    });
-    const regex = new RegExp(q, "i");
-    const posts = await this.postModel
-      .find({
-        keywords: regex,
-        deleted: false,
-        moderated: false,
-        $or: [
-          { visibility: "public" },
-          { visibility: "private", userId: user.id },
-        ],
-      })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .sort({ createdAt: -1 });
-
-    // Get interaction counts and signed URLs for all posts
-    const postsWithCountsAndUrls = await Promise.all(
+    // Get interaction counts for all posts
+    const postsWithCounts = await Promise.all(
       posts.map(async (post) => {
         const postObj = post.toObject();
-        const [interactionCounts, signedUrls] = await Promise.all([
-          this.getPostInteractionCounts(post._id.toString()),
-          post.media && post.media.length > 0
-            ? this.grpcMediaService.getSignedUploadUrls(post.media)
-            : { urls: [] },
-        ]);
-
+        const interactionCounts = await this.getPostInteractionCounts(
+          post._id.toString(),
+          userId
+        );
         return {
           ...postObj,
           reactionCount: interactionCounts.reactionCount,
           commentCount: interactionCounts.commentCount,
-          signedMediaUrls: signedUrls.urls,
+          isLiked: interactionCounts.isLiked,
         };
       })
     );
 
-    const total = await this.postModel.countDocuments({
-      keywords: regex,
-      deleted: false,
-      moderated: false,
-      $or: [
-        { visibility: "public" },
-        { visibility: "private", userId: user.id },
-      ],
-    });
+    const totalPages = Math.ceil(total / limit);
 
-    this.logger.log("Search completed", {
-      query: q,
-      count: posts.length,
+    return {
+      data: postsWithCounts,
       total,
-    });
-    return { posts: postsWithCountsAndUrls, total };
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    };
+  }
+
+  async search(
+    q: string,
+    page = 1,
+    limit = 10,
+    userId: any
+  ): Promise<PaginatedResponse<any>> {
+    this.logger.log("Searching posts", { query: q, page, limit });
+
+    const query = {
+      $and: [
+        {
+          $or: [
+            { caption: { $regex: q, $options: "i" } },
+            { location: { $regex: q, $options: "i" } },
+          ],
+        },
+        { deleted: false },
+        { moderated: false },
+      ],
+    };
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+      this.postModel.countDocuments(query),
+    ]);
+
+    // Get interaction counts for all posts
+    const postsWithCounts = await Promise.all(
+      posts.map(async (post) => {
+        const postObj = post.toObject();
+        const interactionCounts = await this.getPostInteractionCounts(
+          post._id.toString(),
+          userId
+        );
+        return {
+          ...postObj,
+          reactionCount: interactionCounts.reactionCount,
+          commentCount: interactionCounts.commentCount,
+          isLiked: interactionCounts.isLiked,
+        };
+      })
+    );
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: postsWithCounts,
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+    };
   }
 
   async validatePost(postId: string) {
@@ -677,57 +522,56 @@ export class PostService {
     }
   }
 
-  async getAllPosts(page?: number, limit?: number) {
-    try {
-      this.logger.log("Getting all posts", { page, limit });
+  async getAllPosts(
+    page?: number,
+    limit?: number,
+    userId?: string
+  ): Promise<PaginatedResponse<any>> {
+    this.logger.log("Getting all posts", { page, limit });
 
-      const query = this.postModel
-        .find({ deleted: false })
-        .sort({ createdAt: -1 });
+    const query = this.postModel.find({
+      deleted: false,
+      moderated: false,
+    });
 
-      // Only apply pagination if both page and limit are provided
-      if (page !== undefined && limit !== undefined) {
-        query.skip((page - 1) * limit).limit(limit);
-      }
-
-      const posts = await query.exec();
-
-      // Get interaction counts for all posts
-      const postsWithCounts = await Promise.all(
-        posts.map(async (post) => {
-          try {
-            const postObj = post.toObject();
-            const interactionCounts = await this.getPostInteractionCounts(
-              post._id.toString()
-            );
-            return {
-              ...postObj,
-              reactionCount: interactionCounts.reactionCount,
-              commentCount: interactionCounts.commentCount,
-            };
-          } catch (error) {
-            this.logger.error(
-              `Error getting interaction counts for post ${post._id}: ${error.message}`
-            );
-            // Return post without interaction counts if there's an error
-            return {
-              ...post.toObject(),
-              reactionCount: 0,
-              commentCount: 0,
-            };
-          }
-        })
-      );
-
-      this.logger.log("Retrieved all posts", {
-        count: posts.length,
-      });
-
-      return { posts: postsWithCounts };
-    } catch (error) {
-      this.logger.error(`Error in getAllPosts: ${error.message}`);
-      throw error;
+    // Only apply pagination if both page and limit are provided
+    if (page !== undefined && limit !== undefined) {
+      query.skip((page - 1) * limit).limit(limit);
     }
+
+    const [posts, total] = await Promise.all([
+      query.sort({ createdAt: -1 }).exec(),
+      this.postModel.countDocuments({ deleted: false, moderated: false }),
+    ]);
+
+    // Get interaction counts for all posts
+    const postsWithCounts = await Promise.all(
+      posts.map(async (post) => {
+        const postObj = post.toObject();
+        const interactionCounts = await this.getPostInteractionCounts(
+          post._id.toString(),
+          userId || ""
+        );
+        return {
+          ...postObj,
+          reactionCount: interactionCounts.reactionCount,
+          commentCount: interactionCounts.commentCount,
+          isLiked: interactionCounts.isLiked,
+        };
+      })
+    );
+
+    const totalPages = Math.ceil(total / (limit || total));
+
+    return {
+      data: postsWithCounts,
+      total,
+      page: page || 1,
+      limit: limit || total,
+      totalPages,
+      hasNextPage: page ? page < totalPages : false,
+      hasPreviousPage: page ? page > 1 : false,
+    };
   }
 
   async getReportedPosts() {
@@ -779,7 +623,7 @@ export class PostService {
     };
   }
 
-  async getPostInteractionCounts(postId: string) {
+  async getPostInteractionCounts(postId: string, userId: string) {
     this.logger.log("Getting post interaction counts", { postId });
     try {
       const post = await this.postModel.findById(postId);
@@ -788,11 +632,15 @@ export class PostService {
         return {
           reactionCount: 0,
           commentCount: 0,
+          isLiked: false,
         };
       }
 
       // Make gRPC call to interaction service to get counts
-      const result = await this.grpcService.getPostInteractionCounts(postId);
+      const result = await this.grpcService.getPostInteractionCounts(
+        postId,
+        userId
+      );
       return result;
     } catch (error) {
       this.logger.error("Error getting post interaction counts", error.stack, {
@@ -802,67 +650,103 @@ export class PostService {
       return {
         reactionCount: 0,
         commentCount: 0,
+        isLiked: false,
       };
     }
   }
 
-  async reportPost(postId: string, userId: string, reason: string) {
+  async reportPost(
+    postId: string,
+    userId: string,
+    reason: string
+  ): Promise<void> {
     this.logger.log("Reporting post", { postId, userId, reason });
 
     const post = await this.postModel.findById(postId);
-    if (!post || post.deleted) {
-      this.logger.warn("Post not found or already deleted", { postId });
-      throw new NotFoundException("Post not found");
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
     }
 
-    // Check if user has already reported this post
+    if (post.deleted) {
+      throw new BadRequestException(ErrorMessages.POST_NOT_AVAILABLE);
+    }
+
     const hasReported = post.reportHistory.some(
       (report) => report.userId.toString() === userId
     );
 
     if (hasReported) {
-      throw new BadRequestException("You have already reported this post");
+      throw new BadRequestException(ErrorMessages.USER_ALREADY_REPORTED);
     }
 
-    // Add report to history
     post.reportHistory.push({
       userId: new Types.ObjectId(userId),
       reason,
       createdAt: new Date(),
     });
 
-    // Update report count
     post.reportCount += 1;
     post.isReported = true;
-    post.reportReason = reason; // Keep the latest reason
+    post.reportReason = reason;
 
     await post.save();
+  }
 
-    // Notify post owner about the report
-    const postOwnerId = post.UserId.toString();
-    await this.grpcNotificationService.sendPostNotification(
-      postOwnerId,
-      "POST_REPORTED",
-      "Your Post Has Been Reported",
-      "Your post has been reported for review",
-      {
-        postId: post._id.toString(),
-        reason,
-        reportCount: post.reportCount.toString(),
-      }
+  async unreportPost(postId: string, userId: string): Promise<void> {
+    this.logger.log("Unreporting post", { postId, userId });
+
+    const post = await this.postModel.findById(postId);
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
+    }
+
+    const reportIndex = post.reportHistory.findIndex(
+      (report) => report.userId.toString() === userId
     );
 
-    this.logger.log("Post reported successfully", {
-      postId,
-      userId,
-      reportCount: post.reportCount,
-    });
+    if (reportIndex === -1) {
+      throw new BadRequestException(ErrorMessages.USER_NOT_REPORTED);
+    }
 
-    return {
-      message: "Post reported successfully",
-      success: true,
-      reportCount: post.reportCount,
-    };
+    post.reportHistory.splice(reportIndex, 1);
+    post.reportCount -= 1;
+
+    if (post.reportCount === 0) {
+      post.isReported = false;
+      post.reportReason = null;
+    }
+
+    await post.save();
+  }
+
+  async moderatePost(
+    postId: string,
+    moderatorId: string,
+    reason: string
+  ): Promise<void> {
+    this.logger.log("Moderating post", { postId, moderatorId, reason });
+
+    const post = await this.postModel.findById(postId);
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
+    }
+
+    post.moderated = true;
+    post.reportReason = reason;
+    await post.save();
+  }
+
+  async unmoderatePost(postId: string, moderatorId: string): Promise<void> {
+    this.logger.log("Unmoderating post", { postId, moderatorId });
+
+    const post = await this.postModel.findById(postId);
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
+    }
+
+    post.moderated = false;
+    post.reportReason = null;
+    await post.save();
   }
 
   async getTaggedPosts(userId: string, page = 1, limit = 10) {
@@ -887,7 +771,8 @@ export class PostService {
       posts.map(async (post) => {
         const postObj = post.toObject();
         const interactionCounts = await this.getPostInteractionCounts(
-          post._id.toString()
+          post._id.toString(),
+          userId
         );
         return {
           ...postObj,
@@ -920,92 +805,99 @@ export class PostService {
     };
   }
 
-  async getSavedPosts(userId: string, page: number = 1, limit: number = 10) {
+  async getSavedPosts(
+    userId: string,
+    page: number = 1,
+    limit: number = 10
+  ): Promise<PaginatedResponse<any>> {
     this.logger.log("Getting saved posts", { userId, page, limit });
-    const skip = (page - 1) * limit;
 
-    const posts = await this.postModel
-      .find({
-        savedBy: new Types.ObjectId(userId),
-        deleted: false,
-        moderated: false,
-      })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .exec();
+    const [savedPosts, total] = await Promise.all([
+      this.savedPostModel
+        .find({ userId: new Types.ObjectId(userId) })
+        .sort({ savedAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate({
+          path: "postId",
+          match: { deleted: false, moderated: false },
+        }),
+      this.savedPostModel.countDocuments({
+        userId: new Types.ObjectId(userId),
+      }),
+    ]);
 
-    const total = await this.postModel.countDocuments({
-      savedBy: new Types.ObjectId(userId),
-      deleted: false,
-      moderated: false,
-    });
+    // Filter out null posts (deleted or moderated)
+    const validSavedPosts = savedPosts.filter((sp) => sp.postId);
 
-    // Get interaction counts for each post
-    const postsWithInteractions = await Promise.all(
-      posts.map(async (post) => {
-        const [reactions, comments] = await Promise.all([
-          this.postModel.countDocuments({
-            _id: post._id,
-            "reactions.userId": { $exists: true },
-          }),
-          this.postModel.countDocuments({
-            _id: post._id,
-            "comments.userId": { $exists: true },
-          }),
-        ]);
-
+    // Get interaction counts for all posts
+    const postsWithCounts = await Promise.all(
+      validSavedPosts.map(async (savedPost) => {
+        const post = savedPost.postId as any;
         const postObj = post.toObject();
+        const interactionCounts = await this.getPostInteractionCounts(
+          post._id.toString(),
+          userId
+        );
         return {
           ...postObj,
-          reactionCount: reactions,
-          commentCount: comments,
+          reactionCount: interactionCounts.reactionCount,
+          commentCount: interactionCounts.commentCount,
+          isLiked: interactionCounts.isLiked,
+          savedAt: savedPost.savedAt,
         };
       })
     );
 
+    const totalPages = Math.ceil(total / limit);
+
     return {
-      posts: postsWithInteractions,
+      data: postsWithCounts,
       total,
       page,
-      totalPages: Math.ceil(total / limit),
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
     };
   }
 
-  async savePost(postId: string, userId: string) {
-    this.logger.log("Saving post", { postId, userId });
+  async savePost(userId: string, postId: string): Promise<void> {
+    this.logger.log("Saving post", { userId, postId });
 
     const post = await this.postModel.findById(postId);
-    if (!post || post.deleted || post.moderated) {
-      throw new NotFoundException("Post not found or unavailable");
+    if (!post) {
+      throw new NotFoundException(ErrorMessages.POST_NOT_FOUND);
     }
 
-    // Check if post is already saved
-    if (post.savedBy.includes(new Types.ObjectId(userId))) {
-      return { message: "Post already saved" };
+    try {
+      await this.savedPostModel.create({
+        userId: new Types.ObjectId(userId),
+        postId: new Types.ObjectId(postId),
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        // Duplicate key error - post is already saved
+        return;
+      }
+      throw error;
     }
-
-    // Add user to savedBy array
-    post.savedBy.push(new Types.ObjectId(userId));
-    await post.save();
-
-    return { message: "Post saved successfully" };
   }
 
-  async unsavePost(postId: string, userId: string) {
-    this.logger.log("Unsaving post", { postId, userId });
+  async unsavePost(userId: string, postId: string): Promise<void> {
+    this.logger.log("Unsaving post", { userId, postId });
 
-    const post = await this.postModel.findById(postId);
-    if (!post || post.deleted || post.moderated) {
-      throw new NotFoundException("Post not found or unavailable");
-    }
+    await this.savedPostModel.deleteOne({
+      userId: new Types.ObjectId(userId),
+      postId: new Types.ObjectId(postId),
+    });
+  }
 
-    // Remove user from savedBy array
-    post.savedBy = post.savedBy.filter(
-      (id) => id.toString() !== userId.toString()
-    );
-    await post.save();
-
-    return { message: "Post unsaved successfully" };
+  async isPostSaved(userId: string, postId: string): Promise<boolean> {
+    const savedPost = await this.savedPostModel.findOne({
+      userId: new Types.ObjectId(userId),
+      postId: new Types.ObjectId(postId),
+    });
+    return !!savedPost;
   }
 }

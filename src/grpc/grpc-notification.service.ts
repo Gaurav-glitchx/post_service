@@ -1,17 +1,13 @@
-import { Injectable, OnModuleInit, Inject } from '@nestjs/common';
-import { ClientGrpc } from '@nestjs/microservices';
-import { join } from 'path';
-import { ConfigService } from '@nestjs/config';
-import { CustomLogger } from '../logger/logger.service';
+import { Injectable, OnModuleInit, Inject } from "@nestjs/common";
+import { ClientGrpc } from "@nestjs/microservices";
+import { CustomLogger } from "../logger/logger.service";
 
 interface NotificationService {
-  sendPostNotification(request: {
+  TagNotification(request: {
     userId: string;
-    type: string;
-    title: string;
-    message: string;
-    post: Record<string, string>;
-  }): Promise<{ success: boolean; notificationId: string }>;
+    postId: string;
+    TagedUserIds: string[];
+  }): Promise<{ message: string; success: boolean }>;
 }
 
 @Injectable()
@@ -19,37 +15,51 @@ export class GrpcNotificationService implements OnModuleInit {
   private notificationService: NotificationService;
 
   constructor(
-    @Inject('NOTIFICATION_PACKAGE') private readonly client: ClientGrpc,
-    private readonly logger: CustomLogger,
+    @Inject("NOTIFICATION_PACKAGE") private readonly client: ClientGrpc,
+    private readonly logger: CustomLogger
   ) {
-    this.logger.setContext('GrpcNotificationService');
+    this.logger.setContext("GrpcNotificationService");
   }
 
   onModuleInit() {
-    this.notificationService = this.client.getService<NotificationService>('NotificationService');
+    this.notificationService = this.client.getService<NotificationService>(
+      "NotificationService"
+    );
   }
 
-  async sendPostNotification(
+  async TagNotification(
     userId: string,
-    type: string,
-    title: string,
-    message: string,
-    post: Record<string, string> = {},
-  ) {
+    postId: string,
+    TagedUserIds: string[]
+  ): Promise<{ message: string; success: boolean }> {
     try {
-      this.logger.log('Sending notification', { userId, type, title });
-      const response = await this.notificationService.sendPostNotification({
+      this.logger.log("Initiating TagNotification gRPC call", {
         userId,
-        type,
-        title,
-        message,
-        post,
+        postId,
+        TagedUserIds,
+        timestamp: new Date().toISOString(),
       });
-      this.logger.log('Notification sent successfully', { notificationId: response.notificationId });
+
+      const response = await this.notificationService.TagNotification({
+        userId,
+        postId,
+        TagedUserIds,
+      });
+
+      this.logger.log("TagNotification gRPC call successful", {
+        response,
+        timestamp: new Date().toISOString(),
+      });
+
       return response;
     } catch (error) {
-      this.logger.error('Failed to send notification', error.stack, { error: error.message, userId, type });
+      this.logger.error("TagNotification gRPC call failed", error.stack, {
+        userId,
+        postId,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
       throw error;
     }
   }
-} 
+}

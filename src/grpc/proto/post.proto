@@ -108,9 +108,11 @@ message PostIdRequest {
 
 message GetPostInteractionCountsRequest {
   string postId = 1;
+  string userId = 2;
 }
 
 message GetPostInteractionCountsResponse {
   int32 reactionCount = 1;
   int32 commentCount = 2;
+  bool isLiked = 3;
 }

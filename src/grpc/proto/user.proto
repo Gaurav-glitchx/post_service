@@ -2,110 +2,94 @@ syntax = "proto3";
 
 package user;
 
+
 service UserService {
-  // User CRUD operations
-  rpc CreateUser(CreateUserRequest) returns (User);
-  rpc FindAllUsers(FindAllUsersRequest) returns (FindAllUsersResponse);
-  rpc FindOneUser(FindOneUserRequest) returns (User);
-  rpc UpdateUser(UpdateUserRequest) returns (User);
-  rpc RemoveUser(RemoveUserRequest) returns (Empty);
-  
-  // User search and validation
-  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
-  rpc ValidateUser(ValidateUserRequest) returns (ValidateUserResponse);
-  rpc FindByEmail(FindByEmailRequest) returns (User);
-  rpc FindByUsername(FindByUsernameRequest) returns (User);
-  
-  // Social features
-  rpc FollowUser(FollowUserRequest) returns (User);
-  rpc UnfollowUser(UnfollowUserRequest) returns (User);
-  rpc GetFollowers(GetFollowersRequest) returns (GetFollowersResponse);
-  rpc GetFollowing(GetFollowingRequest) returns (GetFollowingResponse);
-  
-  // User management
-  rpc BlockUser(BlockUserRequest) returns (User);
-  rpc UnblockUser(UnblockUserRequest) returns (User);
-  rpc BanUser(BanUserRequest) returns (User);
-  rpc UnbanUser(UnbanUserRequest) returns (User);
-  rpc GetBannedUsers(Empty) returns (GetBannedUsersResponse);
-  
-  // Profile picture management
-  rpc GeneratePresignedUrl(GeneratePresignedUrlRequest) returns (GeneratePresignedUrlResponse);
-  rpc UpdateProfilePicture(UpdateProfilePictureRequest) returns (User);
+
+  rpc Create(CreateUserRequest) returns (UserResponse) {}
+
+  rpc Login(CreateUserRequest) returns (UserToken) {}
+
+  rpc FindAll(FindAllRequest) returns (UsersResponse) {}
+
+  rpc Search(SearchRequest) returns (UsersResponse) {}
+
+  rpc FindOne(FindOneRequest) returns (UserResponse) {}
+
+  rpc FindByEmail(FindByEmailRequest) returns (UserResponse) {}
+
+  rpc FindByUsername(FindByUsernameRequest) returns (UserResponse) {}
+
+  rpc Update(UpdateUserRequest) returns (UserResponse) {}
+
+  rpc Remove(RemoveRequest) returns (Empty) {}
+
+  rpc FollowRequest(FollowRequest) returns (UserResponse) {}
+
+  rpc Unfollow(UnfollowRequest) returns (UserResponse) {}
+
+  rpc GetFollowers(GetFollowersRequest) returns (UsersResponse) {}
+
+  rpc GetFollowing(GetFollowingRequest) returns (UsersResponse) {}
+
+  rpc BlockUser(BlockUserRequest) returns (UserResponse) {}
+
+  rpc UnblockUser(UnblockUserRequest) returns (UserResponse) {}
+
+  rpc ValidateUser(ValidateRequest) returns (ValidateResponse) {}
+
+  // adding for interaction 
+  rpc GetUserName(GetUserNameRequest) returns (GetUserNameResponse) {}
 }
 
-// Common messages
-message Empty {}
 
-message User {
-  string id = 1;
-  string email = 2;
-  string username = 3;
-  string fullName = 4;
-  string bio = 5;
-  string profilePicture = 6;
-  bool isBanned = 7;
-  repeated string followers = 8;
-  repeated string following = 9;
-  repeated string blockedUsers = 10;
-  string createdAt = 11;
-  string updatedAt = 12;
+
+service AdminService {
+  rpc BanUser(BanUserRequest) returns (UserResponse) {}
+
+  rpc UnbanUser(UnbanUserRequest) returns (UserResponse) {}
 }
 
-// Request/Response messages for CRUD operations
-message CreateUserRequest {
+
+message GetUserNameRequest {
+  string userId = 1;
+}
+
+message GetUserNameResponse {
+  string fullName = 1;
+  string username = 2;
+}
+
+
+message ValidateRequest{
+  string id =1;
+}
+
+message ValidateResponse{
+  bool message =1 ;
+}
+
+message UserToken{
+  string token =1;
+}
+message CreateUserRequest{
   string email = 1;
   string username = 2;
-  string password = 3;
-  string fullName = 4;
-  string bio = 5;
+  string fullName = 3;
+  string password = 4;
 }
 
-message FindAllUsersRequest {
+message FindAllRequest {
   int32 page = 1;
   int32 limit = 2;
 }
 
-message FindAllUsersResponse {
-  repeated User users = 1;
-  int32 totalCount = 2;
-}
-
-message FindOneUserRequest {
-  string id = 1;
-}
-
-message UpdateUserRequest {
-  string id = 1;
-  string email = 2;
-  string username = 3;
-  string password = 4;
-  string fullName = 5;
-  string bio = 6;
-}
-
-message RemoveUserRequest {
-  string id = 1;
-}
-
-// Search and validation messages
-message SearchUsersRequest {
+message SearchRequest {
   string query = 1;
   int32 page = 2;
 }
 
-message SearchUsersResponse {
-  repeated User users = 1;
-  int32 totalCount = 2;
-}
-
-message ValidateUserRequest {
+message FindOneRequest {
   string id = 1;
-}
-
-message ValidateUserResponse {
-  bool isValid = 1;
-  bool isBanned = 2;
 }
 
 message FindByEmailRequest {
@@ -116,73 +100,83 @@ message FindByUsernameRequest {
   string username = 1;
 }
 
-// Social feature messages
-message FollowUserRequest {
+message UpdateUserRequest {
+  string id = 1;
+  optional string email = 2;
+  optional string username = 3;
+  optional string fullName = 4;
+  optional string password = 5;
+}
+
+message RemoveRequest {
+  string id = 1;
+}
+
+message FollowRequest {
   string userId = 1;
   string targetId = 2;
 }
 
-message UnfollowUserRequest {
+message UnfollowRequest {
   string userId = 1;
   string targetId = 2;
 }
 
 message GetFollowersRequest {
   string userId = 1;
-  int32 page = 2;
-}
-
-message GetFollowersResponse {
-  repeated User users = 1;
-  int32 totalCount = 2;
 }
 
 message GetFollowingRequest {
   string userId = 1;
-  int32 page = 2;
 }
 
-message GetFollowingResponse {
-  repeated User users = 1;
-  int32 totalCount = 2;
-}
-
-// User management messages
 message BlockUserRequest {
   string currentUserId = 1;
-  string targetUserId = 2;
+  string userId = 2;
 }
 
 message UnblockUserRequest {
   string currentUserId = 1;
-  string targetUserId = 2;
+  string userId = 2;
+}
+
+
+
+message UsersResponse {
+  repeated UserResponse users = 1;
+  int32 totalCount = 2;
 }
 
 message BanUserRequest {
-  string userId = 1;
-  string reason = 2;
+  string adminId = 1;
+  string targetId = 2;
+  optional string reason = 3;
 }
 
 message UnbanUserRequest {
-  string userId = 1;
+  string adminId = 1;
+  string targetId = 2;
 }
 
-message GetBannedUsersResponse {
-  repeated User users = 1;
+message UserResponse {
+  string id = 1;
+  string email = 2;
+  string username = 3;
+  string fullName = 4;
+  string bio = 5;
+  string accountType = 6;
+  string profilePicture = 7;
+  int32 followersCount = 8;
+  int32 followingCount = 9;
+  repeated string followers = 10;
+  repeated string following = 11;
+  repeated string posts = 12;
+  repeated string blockedUsers = 13;
+  bool isBanned = 14; 
+  optional string banReason = 15; 
+  
 }
 
-// Profile picture messages
-message GeneratePresignedUrlRequest {
-  string userId = 1;
-  string fileType = 2;
-}
 
-message GeneratePresignedUrlResponse {
-  string url = 1;
-  string key = 2;
-}
 
-message UpdateProfilePictureRequest {
-  string userId = 1;
-  string imageKey = 2;
-} 
+message Empty {}

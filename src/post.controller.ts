@@ -11,6 +11,7 @@ import {
   Req,
   Logger,
   Request,
+  HttpStatus,
 } from "@nestjs/common";
 import { Request as ExpressRequest } from "express";
 import {
@@ -19,6 +20,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiQuery,
+  ApiParam,
 } from "@nestjs/swagger";
 import { PostService } from "./post.service";
 import { CreatePostDto } from "./dto/create-post.dto";
@@ -44,8 +46,12 @@ export class PostController {
 
   @ApiOperation({ summary: "Search posts" })
   @ApiResponse({
-    status: 200,
+    status: HttpStatus.OK,
     description: "List of posts matching the search query",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
   })
   @ApiQuery({ name: "q", required: true, description: "Search query" })
   @ApiQuery({ name: "page", required: false, type: Number })
@@ -62,6 +68,19 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Get all posts by user" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "List of posts by the specified user",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "User not found",
+  })
+  @ApiParam({ name: "userId", description: "User ID" })
   @ApiQuery({ name: "page", required: false })
   @ApiQuery({ name: "limit", required: false })
   @UseGuards(GrpcAuthGuard)
@@ -76,7 +95,15 @@ export class PostController {
     return this.postService.getByUser(userId, page, limit, currentUserId);
   }
 
-  @ApiOperation({ summary: "Get feed" })
+  @ApiOperation({ summary: "Get user's feed" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "List of posts in user's feed",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
   @ApiQuery({ name: "page", required: false })
   @ApiQuery({ name: "limit", required: false })
   @UseGuards(GrpcAuthGuard)
@@ -92,8 +119,12 @@ export class PostController {
 
   @ApiOperation({ summary: "Get posts where user is tagged" })
   @ApiResponse({
-    status: 200,
+    status: HttpStatus.OK,
     description: "List of posts where user is tagged",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
   })
   @ApiQuery({ name: "page", required: false, type: Number })
   @ApiQuery({ name: "limit", required: false, type: Number })
@@ -109,7 +140,23 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Get a post by ID" })
-  @ApiResponse({ status: 200, description: "Post found" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "Post found",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "Post not found",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User doesn't have access to this post",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Get(":postId")
   get(@Param("postId") postId: string, @Req() req: RequestWithUser) {
@@ -118,7 +165,18 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Create a post" })
-  @ApiResponse({ status: 201, description: "Post created" })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: "Post created successfully",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: "Invalid post data",
+  })
   @UseGuards(GrpcAuthGuard)
   @Post()
   create(@Body() createPostDto: CreatePostDto, @Req() req: RequestWithUser) {
@@ -127,7 +185,23 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Update a post" })
-  @ApiResponse({ status: 200, description: "Post updated" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "Post updated successfully",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "Post not found",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User is not the post owner",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Put(":postId")
   update(
@@ -140,21 +214,48 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Delete a post" })
-  @ApiResponse({ status: 200, description: "Post deleted" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "Post deleted successfully",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "Post not found",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User is not the post owner",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Delete(":postId")
   delete(@Param("postId") postId: string, @Req() req: RequestWithUser) {
     const userId = req.user.userId;
-    return this.postService.delete(postId, userId);
+    return this.postService.deletePost(postId, userId);
   }
 
   @ApiOperation({ summary: "Report a post" })
-  @ApiResponse({ status: 200, description: "Post reported successfully" })
   @ApiResponse({
-    status: 400,
-    description: "Already reported or invalid request",
+    status: HttpStatus.OK,
+    description: "Post reported successfully",
   })
-  @ApiResponse({ status: 404, description: "Post not found" })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "Post not found",
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: "Post already reported or invalid request",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Post("report/:postId")
   reportPost(
@@ -165,15 +266,20 @@ export class PostController {
     const userId = req.user.userId;
     return this.postService.reportPost(postId, userId, reason);
   }
-   @Get("saved")
-  @UseGuards(GrpcAuthGuard)
+
   @ApiOperation({ summary: "Get user's saved posts" })
   @ApiResponse({
-    status: 200,
-    description: "Returns the user's saved posts",
+    status: HttpStatus.OK,
+    description: "List of user's saved posts",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
   })
   @ApiQuery({ name: "page", required: false, type: Number })
   @ApiQuery({ name: "limit", required: false, type: Number })
+  @UseGuards(GrpcAuthGuard)
+  @Get("saved")
   async getSavedPosts(
     @Request() req: RequestWithUser,
     @Query("page") page: number = 1,
@@ -182,17 +288,22 @@ export class PostController {
     return this.postService.getSavedPosts(req.user.userId, page, limit);
   }
 
-  @Post(":postId/save")
-  @UseGuards(GrpcAuthGuard)
   @ApiOperation({ summary: "Save a post" })
   @ApiResponse({
-    status: 200,
+    status: HttpStatus.OK,
     description: "Post saved successfully",
   })
   @ApiResponse({
-    status: 404,
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
     description: "Post not found",
   })
+  @ApiParam({ name: "postId", description: "Post ID" })
+  @UseGuards(GrpcAuthGuard)
+  @Post(":postId/save")
   async savePost(
     @Request() req: RequestWithUser,
     @Param("postId") postId: string
@@ -200,17 +311,22 @@ export class PostController {
     return this.postService.savePost(postId, req.user.userId);
   }
 
-  @Delete(":postId/save")
-  @UseGuards(GrpcAuthGuard)
   @ApiOperation({ summary: "Unsave a post" })
   @ApiResponse({
-    status: 200,
+    status: HttpStatus.OK,
     description: "Post unsaved successfully",
   })
   @ApiResponse({
-    status: 404,
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
     description: "Post not found",
   })
+  @ApiParam({ name: "postId", description: "Post ID" })
+  @UseGuards(GrpcAuthGuard)
+  @Delete(":postId/save")
   async unsavePost(
     @Request() req: RequestWithUser,
     @Param("postId") postId: string
@@ -219,7 +335,15 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Validate a post" })
-  @ApiResponse({ status: 200, description: "Post validated" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "Post validation result",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Get("validate/:postId")
   validatePost(@Param("postId") postId: string) {
@@ -227,20 +351,43 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Get all posts (admin only)" })
-  @ApiResponse({ status: 200, description: "List of all posts" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "List of all posts",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User is not an admin",
+  })
   @ApiQuery({ name: "page", required: false, type: Number })
   @ApiQuery({ name: "limit", required: false, type: Number })
   @UseGuards(GrpcAuthGuard)
   @Get("admin/all")
   getAllPosts(
+    @Req() req: RequestWithUser,
     @Query("page") page: number = 1,
     @Query("limit") limit: number = 10
   ) {
-    return this.postService.getAllPosts(page, limit);
+    return this.postService.getAllPosts(page, limit, req.user.userId);
   }
 
   @ApiOperation({ summary: "Get reported posts (admin only)" })
-  @ApiResponse({ status: 200, description: "List of reported posts" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "List of reported posts",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User is not an admin",
+  })
   @UseGuards(GrpcAuthGuard)
   @Get("admin/reported")
   getReportedPosts() {
@@ -248,7 +395,23 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Flag a post (admin only)" })
-  @ApiResponse({ status: 200, description: "Post flagged" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "Post flagged successfully",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User is not an admin",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "Post not found",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Post("flag/:postId")
   flagPost(
@@ -261,12 +424,26 @@ export class PostController {
   }
 
   @ApiOperation({ summary: "Delete a post (admin only)" })
-  @ApiResponse({ status: 200, description: "Post deleted" })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: "Post deleted successfully",
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: "User is not authenticated",
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: "User is not an admin",
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: "Post not found",
+  })
+  @ApiParam({ name: "postId", description: "Post ID" })
   @UseGuards(GrpcAuthGuard)
   @Delete("admin/:postId")
   adminDeletePost(@Param("postId") postId: string) {
     return this.postService.adminDeletePost(postId);
   }
-
- 
 }

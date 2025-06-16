@@ -19,7 +19,7 @@ export class UpdatePostDto {
   @IsArray()
   @IsOptional()
   @IsString({ each: true })
-  media?: string[];
+  mediaKeys?: string[];
 
   @ApiProperty({ example: ["media1.jpg"], required: false })
   @IsArray()
@@ -39,4 +39,9 @@ export class UpdatePostDto {
   @IsOptional()
   @IsBoolean()
   isPinned?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  taggedUsers?: string[];
 }

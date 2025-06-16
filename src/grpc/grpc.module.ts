@@ -27,4 +27,4 @@ import { GrpcService } from './grpc.service';
   providers: [GrpcService],
   exports: [GrpcService],
 })
-export class GrpcModule {} 
+export class GrpcModule {}

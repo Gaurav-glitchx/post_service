@@ -5,7 +5,9 @@ import {
   IsArray,
   IsIn,
   IsNotEmpty,
+  IsEnum,
 } from "class-validator";
+import { PostVisibility } from "../post.schema";
 
 export class CreatePostDto {
   @ApiProperty({ example: "Hello world!" })
@@ -13,18 +15,24 @@ export class CreatePostDto {
   @IsNotEmpty()
   content: string;
 
-  @ApiProperty({ example: ["media1.jpg", "media2.png"], required: false })
+  @ApiProperty({
+    example: ["file-key-1", "file-key-2"],
+    required: false,
+    description: "Array of file keys for media that has already been uploaded",
+  })
   @IsArray()
   @IsOptional()
-  media?: string[];
+  @IsString({ each: true })
+  mediaKeys?: string[];
 
   @ApiProperty({ example: "public", enum: ["public", "private"] })
-  @IsString()
-  @IsIn(["public", "private"])
-  visibility: string;
+  @IsOptional()
+  @IsEnum(PostVisibility)
+  visibility?: PostVisibility;
 
   @ApiProperty({ example: ["userId1", "userId2"], required: false })
-  @IsArray()
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   taggedUsers?: string[];
 }

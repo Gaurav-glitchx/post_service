@@ -13,7 +13,7 @@ export class PostGrpcController {
   @GrpcMethod("PostService", "CreatePost")
   async createPost(data: CreatePostDto & { userId: string }) {
     // No auth here, assumed trusted inter-service call
-    const created = await this.postService.create(data, { id: data.userId });
+    const created = await this.postService.create(data, data.userId);
     return { post: created };
   }
 
@@ -26,37 +26,35 @@ export class PostGrpcController {
   @GrpcMethod("PostService", "UpdatePost")
   async updatePost(data: UpdatePostDto & { postId: string; userId: string }) {
     const { postId, userId, ...dto } = data;
-    const updated = await this.postService.update(postId, dto, { id: userId });
+    const updated = await this.postService.update(postId, dto, userId);
     return { post: updated };
   }
 
   @GrpcMethod("PostService", "DeletePost")
   async deletePost(data: { postId: string; userId: string }) {
-    const deleted = await this.postService.delete(data.postId, {
-      id: data.userId,
-    });
+    const deleted = await this.postService.deletePost(data.postId, data.userId);
     return { post: deleted };
   }
 
   @GrpcMethod("PostService", "GetPostsByUser")
   async getPostsByUser(data: { userId: string; page: number; limit: number }) {
-    const { posts, total } = await this.postService.getByUser(
+    const result = await this.postService.getByUser(
       data.userId,
       data.page,
       data.limit,
       { id: data.userId }
     );
-    return { posts, total };
+    return { posts: result.data, total: result.total };
   }
 
   @GrpcMethod("PostService", "GetFeed")
   async getFeed(data: { userId: string; page: number; limit: number }) {
-    const { posts, total } = await this.postService.getFeed(
+    const result = await this.postService.getFeed(
       { id: data.userId },
       data.page,
       data.limit
     );
-    return { posts, total };
+    return { posts: result.data, total: result.total };
   }
 
   @GrpcMethod("PostService", "ValidatePost")
@@ -70,7 +68,7 @@ export class PostGrpcController {
       this.logger.log("Handling allPosts gRPC request");
       const result = await this.postService.getAllPosts();
       this.logger.log("Successfully retrieved all posts", {
-        count: result.posts.length,
+        count: result.data.length,
       });
       return result;
     } catch (error) {
@@ -137,11 +135,6 @@ export class PostGrpcController {
       });
       throw error;
     }
-  }
-
-  @GrpcMethod("PostService", "GetPostInteractionCounts")
-  async getPostInteractionCounts(data: { postId: string }) {
-    return this.postService.getPostInteractionCounts(data.postId);
   }
 
   @GrpcMethod("PostService", "ReportPost")

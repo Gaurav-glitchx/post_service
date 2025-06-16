@@ -19,6 +19,9 @@ interface UserServiceGrpc {
   GetFollowing(data: { userId: string }): Observable<UsersResponse>;
   GetFollowers(data: { userId: string }): Observable<UsersResponse>;
   ValidateUser(data: { id: string }): Observable<ValidateResponse>;
+  GetUserName(data: {
+    userId: string;
+  }): Observable<{ fullName: string; username: string }>;
 }
 
 @Injectable()
@@ -182,6 +185,25 @@ export class GrpcUserService implements OnModuleInit {
     } catch (error) {
       this.logger.error(`Error getting user ${userId}:`, error);
       return { exists: false };
+    }
+  }
+  async getUserNameById(
+    userId: string
+  ): Promise<{ fullName: string; username: string }> {
+    try {
+      const result = await lastValueFrom(
+        this.userService.GetUserName({ userId })
+      );
+      if (!result) {
+        return { fullName: "Unknown User", username: "unknown" };
+      }
+      return {
+        fullName: result.fullName || "Unknown User",
+        username: result.username || "unknown",
+      };
+    } catch (error) {
+      this.logger.error(`Error getting user name for ${userId}:`, error);
+      return { fullName: "Unknown User", username: "unknown" };
     }
   }
 }
