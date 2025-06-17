@@ -1,14 +1,26 @@
-import { Controller, Logger } from "@nestjs/common";
+import { Controller, NotFoundException } from "@nestjs/common";
 import { GrpcMethod } from "@nestjs/microservices";
 import { PostService } from "./post.service";
+import { CustomLogger } from "./logger/logger.service";
 import { CreatePostDto } from "./dto/create-post.dto";
 import { UpdatePostDto } from "./dto/update-post.dto";
+import { PostDocument } from "./post.schema";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { Post } from "./post.schema";
+
+interface FlagPostRequest {
+  postId: string;
+  reason: string;
+}
 
 @Controller()
 export class PostGrpcController {
-  private readonly logger = new Logger(PostGrpcController.name);
-
-  constructor(private readonly postService: PostService) {}
+  constructor(
+    private readonly postService: PostService,
+    private readonly logger: CustomLogger,
+    @InjectModel(Post.name) private readonly postModel: Model<PostDocument>
+  ) {}
 
   @GrpcMethod("PostService", "CreatePost")
   async createPost(data: CreatePostDto & { userId: string }) {
@@ -62,20 +74,41 @@ export class PostGrpcController {
     return this.postService.validatePost(data.postId);
   }
 
-  @GrpcMethod("PostService", "allPosts")
+  @GrpcMethod("PostService", "AllPosts")
   async allPosts() {
     try {
-      this.logger.log("Handling allPosts gRPC request");
+      this.logger.log("Handling AllPosts gRPC request");
       const result = await this.postService.getAllPosts();
-      this.logger.log("Successfully retrieved all posts", {
-        count: result.data.length,
+      this.logger.log("Raw result from getAllPosts:", result);
+
+      // Transform the posts to match the gRPC interface
+      const transformedPosts = result.data.map((post) => {
+        const postObj = post.toObject();
+        return {
+          id: postObj._id.toString(),
+          userId: postObj.UserId.toString(),
+          content: postObj.content,
+          media: postObj.media,
+          visibility: postObj.visibility,
+          deleted: postObj.deleted,
+          moderated: postObj.moderated,
+          keywords: postObj.keywords,
+          createdAt: (postObj as any).createdAt.toISOString(),
+          updatedAt: (postObj as any).updatedAt.toISOString(),
+          isReported: postObj.isReported,
+          reportReason: postObj.reportReason || "",
+        };
       });
-      return result;
+
+      const response = { posts: transformedPosts };
+      this.logger.log("Transformed response:", response);
+      return response;
     } catch (error) {
-      this.logger.error("Error in allPosts gRPC method", {
-        error: error.message,
-        stack: error.stack,
-      });
+      this.logger.error(
+        "Error in AllPosts gRPC method",
+        error instanceof Error ? error.stack : String(error),
+        { error: error instanceof Error ? error.message : String(error) }
+      );
       throw error;
     }
   }
@@ -85,57 +118,132 @@ export class PostGrpcController {
     try {
       this.logger.log("Handling reportedPosts gRPC request");
       const result = await this.postService.getReportedPosts();
-      this.logger.log("Successfully retrieved reported posts", {
-        count: result.posts.length,
+      this.logger.log("Raw result from getReportedPosts:", result);
+
+      // Transform the posts to match the gRPC interface
+      const transformedPosts = result.posts.map((post) => {
+        const postObj = post.toObject();
+        return {
+          id: postObj._id.toString(),
+          userId: postObj.UserId.toString(),
+          content: postObj.content,
+          media: postObj.media,
+          visibility: postObj.visibility,
+          deleted: postObj.deleted,
+          moderated: postObj.moderated,
+          keywords: postObj.keywords,
+          createdAt: (postObj as any).createdAt.toISOString(),
+          updatedAt: (postObj as any).updatedAt.toISOString(),
+          isReported: postObj.isReported,
+          reportReason: postObj.reportReason || "",
+        };
       });
-      return result;
+
+      const response = { posts: transformedPosts };
+      this.logger.log("Transformed response:", response);
+      return response;
     } catch (error) {
-      this.logger.error("Error in reportedPosts gRPC method", {
-        error: error.message,
-        stack: error.stack,
-      });
+      this.logger.error(
+        "Error in reportedPosts gRPC method",
+        error instanceof Error ? error.stack : String(error),
+        { error: error instanceof Error ? error.message : String(error) }
+      );
       throw error;
     }
   }
 
   @GrpcMethod("PostService", "flagPost")
-  async flagPost(data: { postId: string; reason: string }) {
+  async flagPost(request: FlagPostRequest) {
     try {
-      this.logger.log("Handling flagPost gRPC request", {
-        postId: data.postId,
-        reason: data.reason,
-      });
-      const result = await this.postService.flagPost(data.postId, data.reason);
-      this.logger.log("Successfully flagged post", { postId: data.postId });
-      return result;
+      this.logger.log("Handling flagPost gRPC request", request);
+      const result = await this.postService.flagPost(
+        request.postId,
+        request.reason
+      );
+      this.logger.log("Raw result from flagPost:", result);
+
+      // Get the post directly from the database
+      const post = await this.postModel.findById(request.postId);
+      if (!post) {
+        throw new NotFoundException("Post not found");
+      }
+
+      // Transform the post to match the gRPC interface
+      const postObj = post.toObject();
+      const transformedPost = {
+        id: postObj._id.toString(),
+        userId: postObj.UserId.toString(),
+        content: postObj.content,
+        media: postObj.media,
+        visibility: postObj.visibility,
+        deleted: postObj.deleted,
+        moderated: postObj.moderated,
+        keywords: postObj.keywords,
+        createdAt: (postObj as any).createdAt.toISOString(),
+        updatedAt: (postObj as any).updatedAt.toISOString(),
+        isReported: postObj.isReported,
+        reportReason: postObj.reportReason || "",
+      };
+
+      const response = { post: transformedPost };
+      this.logger.log("Transformed response:", response);
+      return response;
     } catch (error) {
-      this.logger.error("Error in flagPost gRPC method", {
-        postId: data.postId,
-        error: error.message,
-        stack: error.stack,
-      });
+      this.logger.error(
+        "Error in flagPost gRPC method",
+        error instanceof Error ? error.stack : String(error),
+        { error: error instanceof Error ? error.message : String(error) }
+      );
       throw error;
     }
   }
 
   @GrpcMethod("PostService", "adminDeletePost")
-  async adminDeletePost(data: { postId: string }) {
-    try {
-      this.logger.log("Handling adminDeletePost gRPC request", {
+async adminDeletePost(data: { postId: string }) {
+  try {
+    this.logger.log("Handling adminDeletePost gRPC request", { postId: data.postId });
+    
+    // Delete the post and get the result
+    const result = await this.postService.adminDeletePost(data.postId);
+    this.logger.log("Raw result from adminDeletePost:", result);
+    
+    // Transform the post to match the gRPC interface
+    const postObj = result.post;
+    const transformedPost = {
+      id: postObj._id.toString(),
+      userId: postObj.UserId.toString(),
+      content: postObj.content,
+      media: postObj.media,
+      visibility: postObj.visibility,
+      deleted: postObj.deleted,
+      moderated: postObj.moderated,
+      keywords: postObj.keywords,
+      createdAt: (postObj as any).createdAt.toISOString(),
+      updatedAt: (postObj as any).updatedAt.toISOString(),
+      isReported: postObj.isReported,
+      reportReason: postObj.reportReason || ''
+    };
+    
+    const response = { 
+      post: transformedPost,
+      message: result.message,
+      success: result.success,
+      alreadyDeleted: result.alreadyDeleted
+    };
+    this.logger.log("Transformed response:", response);
+    return response;
+  } catch (error) {
+    this.logger.error(
+      "Error in adminDeletePost gRPC method",
+      error instanceof Error ? error.stack : String(error),
+      { 
         postId: data.postId,
-      });
-      const result = await this.postService.adminDeletePost(data.postId);
-      this.logger.log("Successfully deleted post", { postId: data.postId });
-      return result;
-    } catch (error) {
-      this.logger.error("Error in adminDeletePost gRPC method", {
-        postId: data.postId,
-        error: error.message,
-        stack: error.stack,
-      });
-      throw error;
-    }
+        error: error instanceof Error ? error.message : String(error)
+      }
+    );
+    throw error;
   }
+}
 
   @GrpcMethod("PostService", "ReportPost")
   async reportPost(data: { postId: string; userId: string; reason: string }) {

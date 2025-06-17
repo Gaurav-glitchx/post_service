@@ -604,10 +604,22 @@ export class PostService {
   async adminDeletePost(postId: string) {
     this.logger.log("Admin deleting post", { postId });
     const post = await this.postModel.findById(postId);
-    if (!post || post.deleted) {
-      this.logger.warn("Post not found or already deleted", { postId });
+    if (!post) {
+      this.logger.warn("Post not found", { postId });
       throw new NotFoundException("Post not found");
     }
+
+    // If post is already deleted, return it with a message
+    if (post.deleted) {
+      this.logger.warn("Post already deleted", { postId });
+      return {
+        message: "Post is already deleted",
+        success: true,
+        post: post.toObject(),
+        alreadyDeleted: true,
+      };
+    }
+
     post.deleted = true;
     await post.save();
     if (post.media.length) {
@@ -620,6 +632,8 @@ export class PostService {
     return {
       message: "Post deleted successfully",
       success: true,
+      post: post.toObject(),
+      alreadyDeleted: false,
     };
   }
 
